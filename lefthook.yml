@@ -1,0 +1,4 @@
+pre-push:
+  commands:
+    spotless:
+      run: ./gradlew spotlessCheck --quiet

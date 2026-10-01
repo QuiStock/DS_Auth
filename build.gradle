@@ -1,7 +1,12 @@
 plugins {
-    id 'java'
-    id 'org.springframework.boot' version '4.1.1'
-    id 'io.spring.dependency-management' version '1.1.7'
+	id 'java'
+	id 'org.springframework.boot' version '4.1.0'
+	id 'io.spring.dependency-management' version '1.1.7'
+
+	id 'com.diffplug.spotless' version '7.0.2'
+	id 'checkstyle'
+	id 'pmd'
+	id 'jacoco'
 }
 
 group = 'com.quistock'
@@ -19,11 +24,101 @@ repositories {
 }
 
 dependencies {
-    implementation 'org.springframework.boot:spring-boot-starter'
-    testImplementation 'org.springframework.boot:spring-boot-starter-test'
-    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+	implementation 'org.springframework.boot:spring-boot-starter'
+	implementation 'org.springframework.boot:spring-boot-starter-web'
+	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+	implementation 'org.springframework.boot:spring-boot-starter-validation'
+	runtimeOnly 'org.postgresql:postgresql'
+	compileOnly 'org.projectlombok:lombok'
+	annotationProcessor 'org.projectlombok:lombok'
+	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	testRuntimeOnly 'com.h2database:h2'
+	testCompileOnly 'org.projectlombok:lombok'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+	testAnnotationProcessor 'org.projectlombok:lombok'
 }
 
-tasks.named('test') {
-    useJUnitPlatform()
+test {
+	useJUnitPlatform()
+}
+
+pmd {
+	toolVersion = '7.16.0'
+	ruleSets = ['category/java/errorprone.xml', 'category/java/bestpractices.xml', 'category/java/design.xml']
+}
+
+// Excludes bootstrap-only code. DO NOT use to hide real logic
+def jacocoExcludes = ['**/DsAuthApplication.class']
+def coverageClasses = sourceSets.main.output.classesDirs.asFileTree.matching { exclude jacocoExcludes }
+def downloadedCoverageData = fileTree(layout.buildDirectory.dir('coverage-input')) {
+	include '**/*.exec', '**/*.ec'
+}
+
+jacocoTestReport {
+	dependsOn test
+
+	classDirectories.setFrom(coverageClasses)
+	reports {
+		xml.required = true
+		html.required = true
+		csv.required = false
+	}
+}
+
+jacocoTestCoverageVerification {
+	dependsOn jacocoTestReport
+
+	classDirectories.setFrom(coverageClasses)
+	violationRules {
+		rule {
+			limit {
+				counter = "LINE"
+				value = "COVEREDRATIO"
+				minimum = 0.80
+			}
+		}
+	}
+}
+
+tasks.register('jacocoAggregateReport', JacocoReport) {
+	description = 'Generate a JaCoCo report from coverage downloaded by CI.'
+	dependsOn classes
+	classDirectories.setFrom(coverageClasses)
+	sourceDirectories.setFrom(sourceSets.main.allSource.srcDirs)
+	executionData.setFrom(downloadedCoverageData)
+	reports {
+		xml.required = true
+		html.required = true
+		csv.required = false
+	}
+}
+
+tasks.register('jacocoAggregateCoverageVerification', JacocoCoverageVerification) {
+	description = 'Validate coverage downloaded by CI.'
+	dependsOn classes
+	classDirectories.setFrom(coverageClasses)
+	sourceDirectories.setFrom(sourceSets.main.allSource.srcDirs)
+	executionData.setFrom(downloadedCoverageData)
+	violationRules {
+		rule {
+			limit {
+				counter = 'LINE'
+				value = 'COVEREDRATIO'
+				minimum = 0.80
+			}
+		}
+	}
+	doFirst {
+		def coverageFiles = downloadedCoverageData.files.findAll { it.exists() }
+		if (coverageFiles.empty) {
+			throw new GradleException('No JaCoCo execution data found in build/coverage-input')
+		}
+		logger.lifecycle('Validating coverage using: {}', coverageFiles.join(', '))
+	}
+}
+
+spotless {
+	java {
+		googleJavaFormat("1.28.0")
+	}
 }
