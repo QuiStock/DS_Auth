@@ -1,7 +1,7 @@
 package com.quistock.auth.service;
 
 import com.quistock.auth.config.RateLimitSettings;
-import com.quistock.auth.error.ApiException;
+import com.quistock.auth.error.ApiExceptionFactory;
 import com.quistock.auth.repository.MongoRateLimitStore;
 import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
@@ -70,7 +70,7 @@ public class AuthRateLimitService {
     long count = store.increment(bucketId, expiresAt);
     if (count > limit) {
       long retryAfter = Math.max(1, Duration.between(now, expiresAt).toSeconds());
-      throw ApiException.rateLimited(retryAfter);
+      throw ApiExceptionFactory.rateLimited(retryAfter);
     }
   }
 
