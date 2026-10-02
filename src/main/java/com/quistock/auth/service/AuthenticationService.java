@@ -88,8 +88,7 @@ public class AuthenticationService {
             || REGIONAL_MANAGER.equals(roleCode)
             || "regional manager".equals(roleName)
             || "regional manager".equals(roleCode);
-    boolean repositor =
-        REPOSITOR.equals(roleName) || REPOSITOR.equals(roleCode);
+    boolean repositor = REPOSITOR.equals(roleName) || REPOSITOR.equals(roleCode);
     return !(MOBILE.equals(platform) && regionalManager)
         && !(WEBSITE.equals(platform) && repositor);
   }

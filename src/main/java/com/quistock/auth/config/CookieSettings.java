@@ -20,7 +20,8 @@ public class CookieSettings {
     if (!"Strict".equalsIgnoreCase(sameSite)
         && !"Lax".equalsIgnoreCase(sameSite)
         && !"None".equalsIgnoreCase(sameSite)) {
-      throw new IllegalStateException("Authentication cookie SameSite must be Strict, Lax, or None.");
+      throw new IllegalStateException(
+          "Authentication cookie SameSite must be Strict, Lax, or None.");
     }
     if ("None".equalsIgnoreCase(sameSite) && !secure) {
       throw new IllegalStateException("SameSite=None authentication cookies require Secure.");

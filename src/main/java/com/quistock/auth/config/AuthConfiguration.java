@@ -11,7 +11,10 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 
 @Configuration
 @EnableConfigurationProperties({
-  JwtSettings.class, PasswordSettings.class, RateLimitSettings.class, CookieSettings.class
+  JwtSettings.class,
+  PasswordSettings.class,
+  RateLimitSettings.class,
+  CookieSettings.class
 })
 public class AuthConfiguration {
   @Bean

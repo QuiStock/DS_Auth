@@ -181,12 +181,9 @@ class DsAuthApplicationTests {
         "manager@example.com",
         passwordEncoder.encode(PASSWORD));
 
-    ResponseEntity<JsonNode> managerMobile =
-        login("manager@example.com", PASSWORD, "mobile");
-    ResponseEntity<JsonNode> managerWebsite =
-        login("manager@example.com", PASSWORD, "website");
-    ResponseEntity<JsonNode> repositorWebsite =
-        login(ACTIVE_EMAIL, PASSWORD, "website");
+    ResponseEntity<JsonNode> managerMobile = login("manager@example.com", PASSWORD, "mobile");
+    ResponseEntity<JsonNode> managerWebsite = login("manager@example.com", PASSWORD, "website");
+    ResponseEntity<JsonNode> repositorWebsite = login(ACTIVE_EMAIL, PASSWORD, "website");
 
     assertEquals(HttpStatus.FORBIDDEN, managerMobile.getStatusCode());
     assertThat(managerMobile.getBody().path("code").asText()).isEqualTo("platform_not_allowed");
@@ -376,10 +373,7 @@ class DsAuthApplicationTests {
     HttpHeaders headers = new HttpHeaders();
     headers.add(HttpHeaders.COOKIE, "refresh_token=" + token);
     return restTemplate.exchange(
-        baseUrl() + "/auth/refresh",
-        HttpMethod.POST,
-        new HttpEntity<>(headers),
-        JsonNode.class);
+        baseUrl() + "/auth/refresh", HttpMethod.POST, new HttpEntity<>(headers), JsonNode.class);
   }
 
   private ResponseEntity<Void> logout(String token) {
@@ -388,10 +382,7 @@ class DsAuthApplicationTests {
       headers.add(HttpHeaders.COOKIE, "refresh_token=" + token);
     }
     return restTemplate.exchange(
-        baseUrl() + "/auth/logout",
-        HttpMethod.POST,
-        new HttpEntity<>(headers),
-        Void.class);
+        baseUrl() + "/auth/logout", HttpMethod.POST, new HttpEntity<>(headers), Void.class);
   }
 
   private String cookieValue(ResponseEntity<?> response, String cookieName) {
