@@ -63,7 +63,7 @@ class DsAuthApplicationTests {
 
   @Container
   private static final PostgreSQLContainer POSTGRES =
-      new PostgreSQLContainer("postgres:16-alpine").withInitScript("db/schema.sql");
+      new PostgreSQLContainer("postgres:16-alpine").withInitScripts("db/schema.sql");
 
   @Container
   private static final MongoDBContainer MONGO = new MongoDBContainer("mongo:8.0").withReplicaSet();
