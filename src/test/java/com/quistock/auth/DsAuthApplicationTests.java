@@ -9,6 +9,7 @@ import com.nimbusds.jose.crypto.RSASSAVerifier;
 import com.nimbusds.jose.jwk.JWKSet;
 import com.nimbusds.jose.jwk.RSAKey;
 import com.nimbusds.jwt.SignedJWT;
+import com.quistock.auth.config.RateLimitSettings;
 import com.quistock.auth.model.RateLimitCounter;
 import com.quistock.auth.model.RefreshTokenDocument;
 import java.nio.charset.StandardCharsets;
@@ -26,8 +27,9 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.resttestclient.TestRestTemplate;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
@@ -46,7 +48,10 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import tools.jackson.databind.JsonNode;
 
 @Testcontainers
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@AutoConfigureTestRestTemplate
+@SpringBootTest(
+    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+    properties = "server.servlet.context-path=/api")
 class DsAuthApplicationTests {
   private static final String PASSWORD = "a-correct-test-password";
   private static final String ACTIVE_EMAIL = "active@example.com";
@@ -65,6 +70,7 @@ class DsAuthApplicationTests {
   @Autowired private JdbcTemplate jdbcTemplate;
   @Autowired private MongoTemplate mongoTemplate;
   @Autowired private PasswordEncoder passwordEncoder;
+  @Autowired private RateLimitSettings rateLimitSettings;
 
   @DynamicPropertySource
   static void registerTestProperties(DynamicPropertyRegistry registry) {
@@ -292,8 +298,9 @@ class DsAuthApplicationTests {
   @Test
   void refreshFailureLimitReturns429() {
     String unknownToken = "A".repeat(43);
-    assertEquals(HttpStatus.UNAUTHORIZED, refresh(unknownToken).getStatusCode());
-    assertEquals(HttpStatus.UNAUTHORIZED, refresh(unknownToken).getStatusCode());
+    for (int attempt = 0; attempt < rateLimitSettings.getRefreshIpLimit(); attempt++) {
+      assertEquals(HttpStatus.UNAUTHORIZED, refresh(unknownToken).getStatusCode());
+    }
 
     ResponseEntity<JsonNode> limited = refresh(unknownToken);
     assertEquals(HttpStatus.TOO_MANY_REQUESTS, limited.getStatusCode());
