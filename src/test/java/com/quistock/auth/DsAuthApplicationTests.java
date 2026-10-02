@@ -28,17 +28,15 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.resttestclient.TestRestTemplate;
-import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureTestRestTemplate;
+import org.springframework.http.HttpStatusCode;
+import org.springframework.web.client.RestClient;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.core.query.Update;
-import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -52,7 +50,6 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import tools.jackson.databind.JsonNode;
 
 @Testcontainers
-@AutoConfigureTestRestTemplate
 @SpringBootTest(
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = "server.servlet.context-path=/api")
@@ -70,7 +67,7 @@ class DsAuthApplicationTests {
 
   @LocalServerPort private int port;
 
-  @Autowired private TestRestTemplate restTemplate;
+  private RestClient restClient;
   @Autowired private JdbcTemplate jdbcTemplate;
   @Autowired private MongoTemplate mongoTemplate;
   @Autowired private PasswordEncoder passwordEncoder;
@@ -90,6 +87,10 @@ class DsAuthApplicationTests {
 
   @BeforeEach
   void prepareDatabase() {
+    restClient =
+        RestClient.builder()
+            .defaultStatusHandler(HttpStatusCode::isError, (request, response) -> {})
+            .build();
     mongoTemplate.remove(new Query(), RefreshTokenDocument.class);
     mongoTemplate.remove(new Query(), RateLimitCounter.class);
     jdbcTemplate.update("DELETE FROM user_account");
@@ -144,7 +145,11 @@ class DsAuthApplicationTests {
     assertThat(token.getHeader().getKeyID()).isEqualTo("test-active");
 
     ResponseEntity<String> jwksResponse =
-        restTemplate.getForEntity(baseUrl() + "/.well-known/jwks.json", String.class);
+        restClient
+            .get()
+            .uri(baseUrl() + "/.well-known/jwks.json")
+            .retrieve()
+            .toEntity(String.class);
     assertEquals(HttpStatus.OK, jwksResponse.getStatusCode());
     assertThat(jwksResponse.getHeaders().getCacheControl()).contains("public");
     JWKSet jwks = JWKSet.parse(jwksResponse.getBody());
@@ -196,22 +201,22 @@ class DsAuthApplicationTests {
   @Test
   void malformedLoginAndRefreshPayloadsReturnUniformBadRequest() {
     ResponseEntity<JsonNode> malformedEmail =
-        restTemplate.postForEntity(
+        post(
             baseUrl() + "/auth/login",
             Map.of("email", "not-an-email", "password", PASSWORD, "platform", "mobile"),
             JsonNode.class);
     ResponseEntity<JsonNode> missingPassword =
-        restTemplate.postForEntity(
+        post(
             baseUrl() + "/auth/login",
             Map.of("email", ACTIVE_EMAIL, "platform", "mobile"),
             JsonNode.class);
     ResponseEntity<JsonNode> invalidPlatform =
-        restTemplate.postForEntity(
+        post(
             baseUrl() + "/auth/login",
             Map.of("email", ACTIVE_EMAIL, "password", PASSWORD, "platform", "desktop"),
             JsonNode.class);
     ResponseEntity<JsonNode> missingRefreshCookie =
-        restTemplate.postForEntity(baseUrl() + "/auth/refresh", Map.of(), JsonNode.class);
+        post(baseUrl() + "/auth/refresh", Map.of(), JsonNode.class);
     ResponseEntity<JsonNode> oversizedPassword = login(ACTIVE_EMAIL, "á".repeat(37));
 
     assertEquals(HttpStatus.BAD_REQUEST, malformedEmail.getStatusCode());
@@ -360,31 +365,42 @@ class DsAuthApplicationTests {
     assertThat(response.getBody().path("code").asText()).isEqualTo("service_unavailable");
   }
 
+  private <T> ResponseEntity<T> post(String uri, Object body, Class<T> responseType) {
+    return restClient.post().uri(uri).body(body).retrieve().toEntity(responseType);
+  }
+
   private ResponseEntity<JsonNode> login(String email, String password) {
     return login(email, password, "mobile");
   }
 
   private ResponseEntity<JsonNode> login(String email, String password, String platform) {
-    return restTemplate.postForEntity(
+    return post(
         baseUrl() + "/auth/login",
         Map.of("email", email, "password", password, "platform", platform),
         JsonNode.class);
   }
 
   private ResponseEntity<JsonNode> refresh(String token) {
-    HttpHeaders headers = new HttpHeaders();
-    headers.add(HttpHeaders.COOKIE, "refresh_token=" + token);
-    return restTemplate.exchange(
-        baseUrl() + "/auth/refresh", HttpMethod.POST, new HttpEntity<>(headers), JsonNode.class);
+    return restClient
+        .post()
+        .uri(baseUrl() + "/auth/refresh")
+        .header(HttpHeaders.COOKIE, "refresh_token=" + token)
+        .retrieve()
+        .toEntity(JsonNode.class);
   }
 
   private ResponseEntity<Void> logout(String token) {
-    HttpHeaders headers = new HttpHeaders();
-    if (token != null) {
-      headers.add(HttpHeaders.COOKIE, "refresh_token=" + token);
-    }
-    return restTemplate.exchange(
-        baseUrl() + "/auth/logout", HttpMethod.POST, new HttpEntity<>(headers), Void.class);
+    return restClient
+        .post()
+        .uri(baseUrl() + "/auth/logout")
+        .headers(
+            headers -> {
+              if (token != null) {
+                headers.add(HttpHeaders.COOKIE, "refresh_token=" + token);
+              }
+            })
+        .retrieve()
+        .toBodilessEntity();
   }
 
   private String cookieValue(ResponseEntity<?> response, String cookieName) {
