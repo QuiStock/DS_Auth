@@ -21,8 +21,7 @@ public class MongoIndexInitializer implements ApplicationRunner {
 
   @Override
   public void run(ApplicationArguments arguments) {
-    Document hello = mongoTemplate.executeCommand(new Document("hello", 1));
-    if (hello == null || !hello.containsKey("setName")) {
+    if (!mongoTemplate.executeCommand(new Document("hello", 1)).containsKey("setName")) {
       throw new IllegalStateException("MongoDB must be configured as a replica set.");
     }
     mongoTemplate

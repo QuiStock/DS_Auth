@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/auth")
 public class AuthController {
+  private static final String X_FORWARDED_FOR = "X-Forwarded-For";
   private final AuthenticationService authenticationService;
   private final TrustedClientIpResolver clientIpResolver;
 
@@ -29,8 +30,7 @@ public class AuthController {
   @PostMapping("/login")
   public ResponseEntity<AuthResponse> login(
       @Valid @RequestBody LoginRequest request, HttpServletRequest servletRequest) {
-    AuthResponse response =
-        authenticationService.login(request, clientIpResolver.resolve(servletRequest));
+    AuthResponse response = authenticationService.login(request, clientIp(servletRequest));
     return noStore(response);
   }
 
@@ -38,8 +38,7 @@ public class AuthController {
   public ResponseEntity<AuthResponse> refresh(
       @Valid @RequestBody RefreshRequest request, HttpServletRequest servletRequest) {
     AuthResponse response =
-        authenticationService.refresh(
-            request.refreshToken(), clientIpResolver.resolve(servletRequest));
+        authenticationService.refresh(request.refreshToken(), clientIp(servletRequest));
     return noStore(response);
   }
 
@@ -52,5 +51,9 @@ public class AuthController {
 
   private ResponseEntity<AuthResponse> noStore(AuthResponse response) {
     return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(response);
+  }
+
+  private String clientIp(HttpServletRequest request) {
+    return clientIpResolver.resolve(request.getRemoteAddr(), request.getHeader(X_FORWARDED_FOR));
   }
 }

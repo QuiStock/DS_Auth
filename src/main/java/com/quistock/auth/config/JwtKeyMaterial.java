@@ -2,6 +2,7 @@ package com.quistock.auth.config;
 
 import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.jwk.JWK;
 import com.nimbusds.jose.jwk.JWKSet;
 import com.nimbusds.jose.jwk.KeyUse;
 import com.nimbusds.jose.jwk.RSAKey;
@@ -59,9 +60,9 @@ public class JwtKeyMaterial {
     return publishedPublicKeys;
   }
 
-  private List<RSAKey> loadPublicKeys(JwtSettings settings, RSAPublicKey activeKey)
+  private List<JWK> loadPublicKeys(JwtSettings settings, RSAPublicKey activeKey)
       throws IOException, JOSEException {
-    List<RSAKey> keys = new ArrayList<>();
+    List<JWK> keys = new ArrayList<>();
     Set<String> keyIds = new HashSet<>();
     keyIds.add(settings.getKeyId());
     keys.add(
@@ -80,7 +81,7 @@ public class JwtKeyMaterial {
     return keys;
   }
 
-  private void addPreviousPublicKeys(String previous, List<RSAKey> keys, Set<String> keyIds)
+  private void addPreviousPublicKeys(String previous, List<JWK> keys, Set<String> keyIds)
       throws IOException, JOSEException {
     for (String entry : previous.split(";")) {
       String[] parts = entry.trim().split("=", 2);
