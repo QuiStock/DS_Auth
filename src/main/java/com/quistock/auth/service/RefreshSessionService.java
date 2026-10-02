@@ -186,10 +186,7 @@ public class RefreshSessionService {
   private AuthTokens response(UserAccount account, String refreshToken) {
     String accessToken = tokenIssuer.issue(account);
     return new AuthTokens(
-        accessToken,
-        refreshToken,
-        tokenIssuer.accessTokenTtl(),
-        jwtSettings.getRefreshTokenTtl());
+        accessToken, refreshToken, tokenIssuer.accessTokenTtl(), jwtSettings.getRefreshTokenTtl());
   }
 
   private record RotationResult(AuthTokens response) {
