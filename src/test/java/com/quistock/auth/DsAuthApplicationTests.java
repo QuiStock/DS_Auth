@@ -287,8 +287,10 @@ class DsAuthApplicationTests {
 
     assertEquals(HttpStatus.NO_CONTENT, first.getStatusCode());
     assertEquals(HttpStatus.NO_CONTENT, second.getStatusCode());
-    assertThat(setCookie(first, "access_token")).contains("Max-Age=0", "HttpOnly", "Path=/api");
-    assertThat(setCookie(first, "refresh_token")).contains("Max-Age=0", "HttpOnly", "Path=/api");
+    assertThat(setCookie(first, "access_token"))
+        .contains("Max-Age=0", "HttpOnly", "Secure", "Path=/api", "SameSite=Lax");
+    assertThat(setCookie(first, "refresh_token"))
+        .contains("Max-Age=0", "HttpOnly", "Secure", "Path=/api", "SameSite=Lax");
     assertEquals(HttpStatus.UNAUTHORIZED, refresh(refreshToken).getStatusCode());
 
     ResponseEntity<Void> unknown = logout("A".repeat(43));
@@ -392,10 +394,22 @@ class DsAuthApplicationTests {
 
   private String setCookie(ResponseEntity<?> response, String cookieName) {
     List<String> setCookies = response.getHeaders().getValuesAsList(HttpHeaders.SET_COOKIE);
-    return setCookies.stream()
-        .filter(value -> value.startsWith(cookieName + "="))
-        .findFirst()
-        .orElseThrow(() -> new AssertionError("Missing Set-Cookie for " + cookieName));
+    for (int index = 0; index < setCookies.size(); index++) {
+      String value = setCookies.get(index);
+      if (value.startsWith(cookieName + "=")) {
+        StringBuilder cookie = new StringBuilder(value);
+        for (int next = index + 1; next < setCookies.size(); next++) {
+          String continuation = setCookies.get(next);
+          if (continuation.startsWith("access_token=")
+              || continuation.startsWith("refresh_token=")) {
+            break;
+          }
+          cookie.append(", ").append(continuation);
+        }
+        return cookie.toString();
+      }
+    }
+    throw new AssertionError("Missing Set-Cookie for " + cookieName);
   }
 
   private ResponseEntity<JsonNode> awaitAndRefresh(CountDownLatch start, String token) {
