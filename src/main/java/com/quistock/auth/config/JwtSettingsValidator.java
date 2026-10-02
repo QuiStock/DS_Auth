@@ -17,6 +17,9 @@ final class JwtSettingsValidator {
     if (!Duration.ofMinutes(5).equals(settings.getAccessTokenTtl())) {
       throw new IllegalStateException("JWT access token lifetime must be exactly five minutes.");
     }
+    if (!Duration.ofDays(15).equals(settings.getRefreshTokenTtl())) {
+      throw new IllegalStateException("Refresh token lifetime must be exactly fifteen days.");
+    }
     URI issuer = URI.create(settings.getIssuer());
     if (!isAllowedIssuer(issuer)) {
       throw new IllegalStateException("JWT issuer must use HTTPS except on the local machine.");

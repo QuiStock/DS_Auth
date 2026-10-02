@@ -3,7 +3,7 @@
 - **Target repository:** [QuiStock/DS_Auth](https://github.com/QuiStock/DS_Auth)
 - **Document location:** `docs/authentication-api-plan.md` in QuiStock/DS_Auth
 - **Repository review date:** 2026-10-02
-- **Status:** the local DS_Auth implementation has been validated with PostgreSQL and MongoDB Testcontainers: all 17 tests, style checks, static analysis, and coverage passed on 2026-10-02. Deployment secrets and URLs, the SQL migration, and future Mobile integration remain pending. This implementation does not modify the Mobile repository.
+- **Status:** the platform and cookie contract described in this revision is implemented in the PR branch; CI validation is pending. Deployment secrets and URLs, the SQL migration, and future Mobile integration remain pending. This implementation does not modify the Mobile repository.
 
 This document defines the contract between DS_Auth, DS_Backend, the PostgreSQL schema, and the QuiStock Android app. The local API implementation is described in section 9.1; Mobile integration and production configuration are later deliverables.
 
@@ -29,10 +29,10 @@ The Mobile app has a visual registration screen, but its current fragment only i
 | Project | Observed state | Implementation consequence |
 | --- | --- | --- |
 | DS_Backend | Spring Boot uses the `/api` context path; every route requires a JWT. The decoder accepts RS256 and validates issuer, audience, a positive numeric subject, and email. The default audience is `quistock-api`. | DS_Auth publishes a JWKS and issues tokens with this exact contract. The backend's current default points to `/.well-known/jwks.json`, without `/api`; change it to `/api/.well-known/jwks.json`. |
-| PostgreSQL | `user_account` has `id BIGINT`, `email VARCHAR(255) UNIQUE NOT NULL`, `password_hash VARCHAR(255) NOT NULL`, and a `user_status` enum with `ACTIVE`/`INACTIVE`. The current uniqueness constraint is case-sensitive. | DS_Auth reads only `id`, `email`, `status`, and `password_hash`. Case-insensitive login requires a duplicate preflight and a functional unique index in the database. |
+| PostgreSQL | `user_account` has `id BIGINT`, `role_id`, `email VARCHAR(255) UNIQUE NOT NULL`, `password_hash VARCHAR(255) NOT NULL`, and a `user_status` enum with `ACTIVE`/`INACTIVE`; `role` has `code` and `name`. The current uniqueness constraint is case-sensitive. | DS_Auth reads the account fields and role name to enforce platform access. Case-insensitive login requires a duplicate preflight and a functional unique index in the database. |
 | DS_Auth | Spring Boot 4.1/Java 25 scaffold. It includes JPA, PostgreSQL, and H2, but not MongoDB, Spring Security/JWT, controllers, or authentication logic. `ddl-auto=update` and `show-sql=true` are enabled. | Remove JPA/automatic DDL and SQL logging; use read-only SQL access and add MongoDB and JWT support. |
-| Mobile | On branch `main`, login uses Firebase Auth with email/password. Firebase Analytics and Crashlytics are also used. `UserPreferences` stores only the Firebase ID in ordinary SharedPreferences; there is no auth client, token storage, Bearer interceptor, or renewal. | Future login moves to DS_Auth. Keep Analytics/Crashlytics. This analysis does not change the Mobile code. |
-| Mobile ↔ DS_Backend | Retrofit uses `BACKEND_BASE_URL` ending in `/api/`; `POST /chat` matches `/api/chat`. Mobile sends `user_id` and `message`, but the backend DTO accepts only `message`. The backend requires JWT, and the current Retrofit client does not send `Authorization`. | Future integration aligns the payload to `message` and sends Bearer authentication. Do not trust identity in the request body; the server uses the validated subject when it needs the user ID. |
+| Mobile | On branch `main`, login uses Firebase Auth with email/password. Firebase Analytics and Crashlytics are also used. `UserPreferences` stores only the Firebase ID in ordinary SharedPreferences; there is no auth client, cookie manager, Bearer interceptor, or renewal. | Future login moves to DS_Auth. Keep Analytics/Crashlytics. This analysis does not change the Mobile code. |
+| Mobile ↔ DS_Backend | Retrofit uses `BACKEND_BASE_URL` ending in `/api/`; `POST /chat` matches `/api/chat`. Mobile sends `user_id` and `message`, but the backend DTO accepts only `message`. The backend requires JWT, and the current Retrofit client does not send `Authorization`. | Future integration aligns the payload to `message` and sends Bearer authentication from the native cookie manager. The website cannot read an `HttpOnly` cookie; website requests need a same-site gateway/backend cookie integration. Do not trust identity in the request body; the server uses the validated subject when it needs the user ID. |
 | Mobile registration | `CadastroPessoalFragment` only inflates the XML. There is no account-creation implementation. | The current screen is not a functional registration flow and is not served by DS_Auth. |
 
 This inspection reflects the local branches available on 2026-10-01. Recheck branches before implementation.
@@ -48,13 +48,15 @@ This inspection reflects the local branches available on 2026-10-01. Recheck bra
 - Mobile will remove Firebase Auth in a future integration; Firebase Analytics and Crashlytics may remain.
 - The current request analyzes Mobile and updates this plan; it does not change any file in the Mobile repository.
 - The subject is the positive decimal SQL ID represented as a string; `email` is a required claim.
+- Login requires `platform` with exactly `mobile` or `website`. Gerente Regional is denied on `mobile`; Repositor is denied on `website`, with `403 Forbidden`.
 - Access tokens last 5 minutes; refresh tokens last 15 days, renewed on each rotation.
 - RS256 signing is compatible with the current DS_Backend decoder.
 - The audience is `quistock-api`.
-- Do not include a role claim until authorization rules are agreed upon.
-- Logout accepts a refresh token. Issued access tokens remain valid until expiration, for up to 5 minutes.
+- Do not include a role claim in the JWT. Read the role from SQL when checking the requested login platform.
+- Login and refresh set HTTP-only access and refresh cookies and return no body or user profile. The cookie `Max-Age` is expressed in seconds by the HTTP cookie standard: 300 seconds for access and 1,296,000 seconds for refresh.
+- Refresh and logout read the refresh token from its cookie. Logout expires both cookies with `Max-Age=0`; the cookie name, path, domain, and security attributes must match the issued cookies.
 - Each login creates an independent family. V1 has no per-user session limit or route to revoke every family; logout revokes the family of the supplied refresh token.
-- Login and refresh responses include only the minimum identity `{id, email}`; `id` equals the JWT subject. This is not a profile object or endpoint.
+- The JWT subject is the SQL account ID and the required `email` claim is the canonical SQL email. Neither value is returned in the login or refresh response body.
 
 ## 4. HTTP contract
 
@@ -65,7 +67,7 @@ DS_Auth defines the `/api` context path. The complete external paths are:
 - `POST /api/auth/logout`
 - `GET /api/.well-known/jwks.json` — public, no authentication required
 
-These four routes are public in the security filter; refresh and logout authenticate through the refresh token in the request body. The API is stateless, uses no cookies or HTTP session, and must not cache login or refresh responses; send `Cache-Control: no-store`. Paths not listed here are outside the contract.
+These four routes are public in the security filter; refresh and logout authenticate through the `refresh_token` cookie. The API is stateless and uses no server-side HTTP session. Login and refresh responses set the `access_token` and `refresh_token` cookies with `HttpOnly`, `Path=/api`, configured `SameSite`/`Secure`/optional `Domain`, and the matching token lifetime. Return an empty body and `Cache-Control: no-store`; do not put tokens or user information in JSON. `Max-Age` uses seconds, as defined by HTTP cookies, not milliseconds. `Lax` is the default `SameSite`; `None` requires `Secure` and a CSRF/origin policy at the website gateway. Logout returns `204 No Content` and both cookies with empty values and `Max-Age=0`, preserving their original cookie scope and attributes. Paths not listed here are outside the contract.
 
 Use port 8090 in the local profile to avoid colliding with DS_Backend, which uses 8080. Mobile will receive an `AUTH_BASE_URL` ending in `/api/`. It may point to the same gateway as the backend if the gateway routes `/api/auth/**` and `/api/.well-known/**` to DS_Auth; if the services use separate hosts, configure the auth origin.
 
@@ -75,48 +77,31 @@ Request:
 
     {
       "email": "person@example.com",
-      "password": "password provided by the user"
+      "password": "password provided by the user",
+      "platform": "mobile"
     }
 
-Success: `200 OK`.
+`platform` is required and accepts only `mobile` or `website`. Gerente Regional may use `website` and receives `403` for `mobile`. Repositor may use `mobile` and receives `403` for `website`. Other active roles are allowed on both platforms unless a later rule says otherwise.
 
-    {
-      "access_token": "<JWT>",
-      "token_type": "Bearer",
-      "expires_in": 300,
-      "refresh_token": "<opaque token>",
-      "refresh_expires_in": 1296000,
-      "user": {
-        "id": "<decimal SQL ID>",
-        "email": "person@example.com"
-      }
-    }
+Success: `200 OK`, empty body, and two `Set-Cookie` headers. `access_token` contains the RS256 JWT with `Max-Age=300`; `refresh_token` contains the opaque token with `Max-Age=1296000`. Both are `HttpOnly`. No user object or tokens are included in a response payload.
 
 Trim surrounding whitespace and lowercase the email using `Locale.ROOT`. Do not alter the password. Look up the same normalized form. The `email` claim contains the canonical email stored in SQL.
 
-Unknown email, incorrect password, and `INACTIVE` account return the same `401` and the same generic code/message. The response must not reveal whether the account exists. For an unknown email, compare the password against a fake BCrypt hash created in memory with the same cost to reduce observable timing differences.
+Unknown email, incorrect password, and `INACTIVE` account return the same `401` and the same generic code/message. The response must not reveal whether the account exists. For an unknown email, compare the password against a fake BCrypt hash created in memory with the same cost to reduce observable timing differences. A valid account with a role that is not permitted on the requested platform receives `403` with code `platform_not_allowed` and no cookies.
 
 ### Refresh
 
-Request:
+Request: send the `refresh_token` cookie from the login response; there is no JSON request body.
 
-    {
-      "refresh_token": "<opaque token>"
-    }
-
-Success: `200 OK` with the same format as the login response and new access and refresh tokens. The returned identity belongs to the same SQL user. Consume the submitted token in the same transaction that creates its successor.
+Success: `200 OK`, empty body, and new `access_token`/`refresh_token` cookies. Consume the submitted token in the same transaction that creates its successor. Cookie max ages are reset to 300 and 1,296,000 seconds from issuance.
 
 Unknown, expired, consumed, or revoked tokens return `401`. If a consumed token is presented again before its original expiry, revoke the entire session family. Expired old tokens may have been removed by the TTL index; in that case return `401` without revoking other sessions.
 
 ### Logout
 
-Request:
+Request: send the `refresh_token` cookie; there is no JSON request body.
 
-    {
-      "refresh_token": "<opaque token>"
-    }
-
-Revoke the family of the supplied refresh token and return `204 No Content`. Unknown or already revoked tokens also return `204`, making the operation idempotent. Mobile clears its local session even if the network request fails. The current access token remains usable in DS_Backend until it expires.
+Revoke the family of the supplied refresh token and return `204 No Content`. Unknown or already revoked tokens also return `204`, making the operation idempotent. Return both issued cookie names with empty values and `Max-Age=0`, preserving the original path, domain, `SameSite`, `Secure`, and `HttpOnly` attributes. The current access token remains usable in DS_Backend until it expires.
 
 ### Uniform error format
 
@@ -126,6 +111,7 @@ Use JSON `{ "code": "...", "message": "..." }` for responses with a body:
 | --- | --- | --- |
 | Missing or invalid field | 400 | `invalid_request` |
 | Unknown/incorrect credentials or inactive account | 401 | `invalid_credentials` |
+| Account role cannot use requested platform | 403 | `platform_not_allowed` |
 | Invalid, expired, revoked, or replayed refresh token | 401 | `invalid_refresh_token` |
 | Rate limit exceeded | 429 | `rate_limited`, with `Retry-After` |
 | SQL or MongoDB unavailable | 503 | `service_unavailable` |
@@ -137,11 +123,12 @@ Never return passwords, hashes, stack traces, email existence, or account status
 
 Use JDBC (`JdbcClient`/`JdbcTemplate`), without mutable entities or JPA. Planned query:
 
-    SELECT id, email, status::text AS status, password_hash
-    FROM user_account
-    WHERE lower(btrim(email)) = ?
+    SELECT u.id, u.email, u.status::text AS status, u.password_hash, r.code, r.name
+    FROM user_account u
+    JOIN role r ON r.id = u.role_id
+    WHERE lower(btrim(u.email)) = ?
 
-The DS_Auth SQL account receives only `SELECT` on `user_account.id`, `email`, `status`, and `password_hash`. It receives no `INSERT`, `UPDATE`, `DELETE`, DDL, or profile/store permissions. The service compares the password in memory using BCrypt and never logs credentials.
+The DS_Auth SQL account receives only `SELECT` on `user_account.id`, `email`, `status`, `password_hash`, and `role_id`, plus `role.id`, `code`, and `name`. It receives no `INSERT`, `UPDATE`, `DELETE`, DDL, or profile/store permissions. The service compares the password in memory using BCrypt and never logs credentials.
 
 Before applying the email-normalization migration:
 
@@ -172,7 +159,7 @@ The `refresh_token` collection stores one document per issued token:
 | `consumed_at`, `revoked_at` | Optional timestamps |
 | `replaced_by_id` | Optional UUID of the successor token |
 
-Generate refresh tokens with 32 cryptographically random bytes and Base64URL encoding without padding. Return the original token only in the response; persist and look up only its SHA-256 hash. Indexes: unique `token_hash`, `family_id`, and TTL on `expires_at`. TTL cleanup is eventual: every read checks state and expiry time. Create indexes through a versioned bootstrap/explicit database migration; do not rely on automatic ORM index creation.
+Generate refresh tokens with 32 cryptographically random bytes and Base64URL encoding without padding. Return the original token only in an `HttpOnly` cookie; persist and look up only its SHA-256 hash. Indexes: unique `token_hash`, `family_id`, and TTL on `expires_at`. TTL cleanup is eventual: every read checks state and expiry time. Create indexes through a versioned bootstrap/explicit database migration; do not rely on automatic ORM index creation.
 
 Rotation runs in a MongoDB transaction: conditionally consume the still-valid active token, insert its successor, and set `replaced_by_id`. A replay detected before expiry revokes the family within the transaction and returns `401` after revocation is confirmed. A replica set is required at runtime and in integration tests; transactions do not work on a standalone MongoDB server. Mobile serializes concurrent refreshes to avoid accidental replay.
 
@@ -206,10 +193,10 @@ This section aligns future implementation; it does not authorize or make changes
 
 1. Add a Retrofit `AuthApi` for `auth/login`, `auth/refresh`, and `auth/logout`, with explicit snake_case DTOs using `@SerialName`; the current converter ignores unknown fields but does not automatically convert property names.
 2. Replace the `AuthenticationPort` binding from `FirebaseAuthenticationPort` with a Retrofit implementation. Map `user.id`/`email` to the local `User` model and map `invalid_credentials` to the existing generic login error.
-3. Add session storage in the data layer: access token in memory; refresh token protected by a key created in Android Keystore. Never put tokens in plaintext SharedPreferences, logs, Analytics, or Crashlytics.
-4. On startup, if a refresh token is persisted, try to renew it; if the API returns `401`, clear the session and show login. `429`/`503`/network errors are transient and must not delete a potentially valid refresh token.
-5. Use a separate HTTP client for auth and business calls. The business client adds `Authorization: Bearer <access_token>` and retries a `401` once after renewal; refresh is serialized. If refresh fails, clear the session and return to login.
-6. Logout attempts the API call and always clears local tokens, including when offline.
+3. Use the native HTTP cookie manager to retain the `HttpOnly` cookies with their server-provided expiry. Never put token values in UI models, logs, Analytics, or Crashlytics.
+4. On startup, call refresh and let the cookie manager attach the `refresh_token`; if the API returns `401`, clear the cookie manager and show login. `429`/`503`/network errors are transient and must not delete a potentially valid refresh token.
+5. Use a separate HTTP client for auth and business calls. For DS_Backend's existing Bearer contract, the native client may read the access cookie from its private cookie jar and set `Authorization: Bearer <access_token>`; browser JavaScript must never read an `HttpOnly` cookie. The website must use a same-site gateway/backend integration that accepts the access cookie or translates it to the current Bearer contract. Refresh is serialized, and the business client retries a `401` once after renewal.
+6. Logout attempts the API call and clears the cookie manager, including when offline; the server also expires both cookies on a successful response.
 7. Stop treating the Firebase UID as identity. The SQL ID in the token is the identity accepted by the backend. `/api/chat` accepts only `message`; remove `user_id` from the Mobile DTO. If a future route needs the user, get the identity from the authenticated server-side subject.
 8. Keep Firebase Analytics and Crashlytics if still needed; remove Firebase Auth only.
 9. Configure `AUTH_BASE_URL` during build/deploy. Mobile sets `usesCleartextTraffic=false`, while `.env.example` suggests an HTTP emulator URL; local tests must use development HTTPS or allow HTTP only in debug builds, never release builds.
@@ -227,7 +214,7 @@ Remove `spring-boot-starter-data-jpa`, `spring.jpa.*` settings, automatic DDL, a
 
 Configure environment variables:
 
-- DS_Auth: `SERVER_PORT` (8090 locally), `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` (read-only credential), `MONGODB_URI`, `MONGODB_DATABASE`, `AUTH_JWT_ISSUER`, `AUTH_JWT_AUDIENCE` (`quistock-api`), `AUTH_JWT_PRIVATE_KEY_PATH`, `AUTH_JWT_PUBLIC_KEY_PATH`, `AUTH_JWT_PREVIOUS_PUBLIC_KEYS`, `AUTH_JWT_KEY_ID`, `AUTH_BCRYPT_STRENGTH`, `AUTH_RATE_LIMIT_HMAC_KEY`, and `AUTH_TRUSTED_PROXY_CIDRS`.
+- DS_Auth: `SERVER_PORT` (8090 locally), `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` (read-only credential), `MONGODB_URI`, `MONGODB_DATABASE`, `AUTH_JWT_ISSUER`, `AUTH_JWT_AUDIENCE` (`quistock-api`), `AUTH_JWT_PRIVATE_KEY_PATH`, `AUTH_JWT_PUBLIC_KEY_PATH`, `AUTH_JWT_PREVIOUS_PUBLIC_KEYS`, `AUTH_JWT_KEY_ID`, `AUTH_COOKIE_SECURE`, `AUTH_COOKIE_SAME_SITE`, `AUTH_COOKIE_PATH`, `AUTH_COOKIE_DOMAIN`, `AUTH_BCRYPT_STRENGTH`, `AUTH_RATE_LIMIT_HMAC_KEY`, and `AUTH_TRUSTED_PROXY_CIDRS`.
 - DS_Backend: `AUTH_JWT_ISSUER`, `AUTH_JWT_JWK_SET_URI`, `AUTH_JWT_AUDIENCE`.
 - Mobile: `AUTH_BASE_URL` and `BACKEND_BASE_URL`, both ending in `/api/`.
 
@@ -275,6 +262,8 @@ The DS_Backend JWKS configuration, functional SQL index migration, deployment se
 - Expiration is enforced by the application, not by eventual MongoDB TTL cleanup.
 - Public JWKS contains only public keys and verifies a valid RS256 token. The backend rejects unknown `kid`, wrong issuer/audience, invalid signature, invalid subject, missing email, and expired token.
 - After an account is inactivated in SQL, login and refresh fail. An already-issued access token remains valid until it expires.
+- Login rejects Gerente Regional on `mobile` and Repositor on `website` with `403`; missing or unsupported `platform` returns `400`.
+- Login and refresh return no JSON body, set the two HTTP-only cookies with TTL-based `Max-Age` in seconds, and expose no user identity. Logout revokes the refresh family and expires both cookies with `Max-Age=0`.
 
 ### Mobile ↔ DS_Auth ↔ DS_Backend
 
@@ -296,7 +285,7 @@ The DS_Backend JWKS configuration, functional SQL index migration, deployment se
 5. Implement documents, indexes, refresh transactions, replay handling, logout, rate limiting, and errors. **Implemented locally.**
 6. Update DS_Backend JWKS configuration.
 7. In a future task, update Mobile for login/logout/refresh, protected storage, and Retrofit Bearer authentication; align chat requests and network states.
-8. Run unit tests, PostgreSQL/Mongo replica set integration tests, and Gradle gates. **Completed locally on 2026-10-02: all 17 tests and all gates passed, including the 80% minimum coverage.** Validate end-to-end on the emulator in the Mobile delivery.
+8. Run unit tests, PostgreSQL/Mongo replica set integration tests, and Gradle gates after the platform and cookie contract changes. The initial implementation passed all 17 tests on 2026-10-02; this revision still needs validation. Validate end-to-end on the emulator in the Mobile delivery.
 9. Configure secrets, issuer, public JWKS, HTTPS URLs, read-only credentials, and monitoring per environment before releasing the API.
 
 ## 12. Production dependencies

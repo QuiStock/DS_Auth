@@ -14,6 +14,7 @@ public class JwtSettings {
   private String previousPublicKeys;
   private String keyId;
   private Duration accessTokenTtl = Duration.ofMinutes(5);
+  private Duration refreshTokenTtl = Duration.ofDays(15);
 
   public String getIssuer() {
     return issuer;
@@ -69,5 +70,13 @@ public class JwtSettings {
 
   public void setAccessTokenTtl(Duration accessTokenTtl) {
     this.accessTokenTtl = accessTokenTtl;
+  }
+
+  public Duration getRefreshTokenTtl() {
+    return refreshTokenTtl;
+  }
+
+  public void setRefreshTokenTtl(Duration refreshTokenTtl) {
+    this.refreshTokenTtl = refreshTokenTtl;
   }
 }

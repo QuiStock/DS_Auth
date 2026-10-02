@@ -42,6 +42,14 @@ public final class ApiException extends RuntimeException {
         HttpStatus.UNAUTHORIZED, "invalid_credentials", "Email ou senha inválidos.", null);
   }
 
+  public static ApiException forbiddenPlatform() {
+    return new ApiException(
+        HttpStatus.FORBIDDEN,
+        "platform_not_allowed",
+        "Este perfil não pode acessar esta plataforma.",
+        null);
+  }
+
   public static ApiException invalidRefreshToken() {
     return new ApiException(
         HttpStatus.UNAUTHORIZED, "invalid_refresh_token", "Refresh token inválido.", null);
