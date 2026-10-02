@@ -2,6 +2,10 @@
 
 Serviço separado para login por email e senha, emissão de JWT RS256, rotação de refresh token e logout. Contas e hashes BCrypt são provisionados por outro fluxo no PostgreSQL. O serviço não cadastra usuários nem mantém perfil.
 
+## Plano de implementação e integração
+
+O contrato entre DS_Auth, DS_Backend, o schema PostgreSQL e a integração futura com o Mobile está em [docs/authentication-api-plan.md](docs/authentication-api-plan.md) (em inglês).
+
 ## Requisitos
 
 - Java 25 para executar o Gradle localmente.
