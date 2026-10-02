@@ -2,7 +2,7 @@ package com.quistock.auth.service;
 
 import com.quistock.auth.dto.AuthTokens;
 import com.quistock.auth.dto.LoginRequest;
-import com.quistock.auth.error.ApiException;
+import com.quistock.auth.error.ApiExceptionFactory;
 import com.quistock.auth.model.UserAccount;
 import com.quistock.auth.repository.UserAccountRepository;
 import java.nio.charset.StandardCharsets;
@@ -41,7 +41,7 @@ public class AuthenticationService {
   public AuthTokens login(LoginRequest request, String ipAddress) {
     byte[] passwordBytes = request.password().getBytes(StandardCharsets.UTF_8);
     if (passwordBytes.length > BCRYPT_MAX_PASSWORD_BYTES) {
-      throw ApiException.invalidRequest();
+      throw ApiExceptionFactory.invalidRequest();
     }
 
     String normalizedEmail = request.email().toLowerCase(Locale.ROOT);
@@ -53,11 +53,11 @@ public class AuthenticationService {
 
     if (!active || !passwordMatches) {
       rateLimitService.recordCredentialFailure(ipAddress, normalizedEmail);
-      throw ApiException.invalidCredentials();
+      throw ApiExceptionFactory.invalidCredentials();
     }
     UserAccount account = found.orElseThrow();
     if (!canUsePlatform(account, request.platform())) {
-      throw ApiException.forbiddenPlatform();
+      throw ApiExceptionFactory.forbiddenPlatform();
     }
     return refreshSessionService.createSession(account);
   }

@@ -17,15 +17,19 @@ public class CookieSettings {
     if (path == null || !path.startsWith("/")) {
       throw new IllegalStateException("Authentication cookie path must start with '/'.");
     }
-    if (!"Strict".equalsIgnoreCase(sameSite)
-        && !"Lax".equalsIgnoreCase(sameSite)
-        && !"None".equalsIgnoreCase(sameSite)) {
+    if (!isValidSameSite(sameSite)) {
       throw new IllegalStateException(
           "Authentication cookie SameSite must be Strict, Lax, or None.");
     }
     if ("None".equalsIgnoreCase(sameSite) && !secure) {
       throw new IllegalStateException("SameSite=None authentication cookies require Secure.");
     }
+  }
+
+  private boolean isValidSameSite(String value) {
+    return "Strict".equalsIgnoreCase(value)
+        || "Lax".equalsIgnoreCase(value)
+        || "None".equalsIgnoreCase(value);
   }
 
   public boolean isSecure() {

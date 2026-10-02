@@ -7,6 +7,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 // These mutable accessors are required by Spring Boot's configuration-properties binder.
 @SuppressWarnings("PMD.DataClass")
 public class JwtSettings {
+  public static final Duration REFRESH_TOKEN_TTL = Duration.ofDays(15);
+
   private String issuer;
   private String audience;
   private String privateKeyPath;
@@ -14,7 +16,7 @@ public class JwtSettings {
   private String previousPublicKeys;
   private String keyId;
   private Duration accessTokenTtl = Duration.ofMinutes(5);
-  private Duration refreshTokenTtl = Duration.ofDays(15);
+  private Duration refreshTokenTtl = REFRESH_TOKEN_TTL;
 
   public String getIssuer() {
     return issuer;
