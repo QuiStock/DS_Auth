@@ -43,9 +43,6 @@ test {
 	useJUnitPlatform()
 }
 
-tasks.named('compileTestJava') {
-	options.compilerArgs.add('-Xlint:deprecation')
-}
 
 pmd {
 	toolVersion = '7.16.0'
