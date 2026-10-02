@@ -170,7 +170,7 @@ class DsAuthApplicationTests {
     assertEquals(HttpStatus.UNAUTHORIZED, incorrect.getStatusCode());
     assertEquals(HttpStatus.UNAUTHORIZED, inactive.getStatusCode());
     assertThat(unknown.getBody()).isEqualTo(incorrect.getBody()).isEqualTo(inactive.getBody());
-    assertThat(unknown.getBody().path("code").asText()).isEqualTo("invalid_credentials");
+    assertThat(unknown.getBody().path("code").asString()).isEqualTo("invalid_credentials");
   }
 
   @Test
@@ -191,11 +191,11 @@ class DsAuthApplicationTests {
     ResponseEntity<JsonNode> repositorWebsite = login(ACTIVE_EMAIL, PASSWORD, "website");
 
     assertEquals(HttpStatus.FORBIDDEN, managerMobile.getStatusCode());
-    assertThat(managerMobile.getBody().path("code").asText()).isEqualTo("platform_not_allowed");
+    assertThat(managerMobile.getBody().path("code").asString()).isEqualTo("platform_not_allowed");
     assertEquals(HttpStatus.OK, managerWebsite.getStatusCode());
     assertThat(managerWebsite.getBody()).isNull();
     assertEquals(HttpStatus.FORBIDDEN, repositorWebsite.getStatusCode());
-    assertThat(repositorWebsite.getBody().path("code").asText()).isEqualTo("platform_not_allowed");
+    assertThat(repositorWebsite.getBody().path("code").asString()).isEqualTo("platform_not_allowed");
   }
 
   @Test
@@ -224,10 +224,10 @@ class DsAuthApplicationTests {
     assertEquals(HttpStatus.BAD_REQUEST, invalidPlatform.getStatusCode());
     assertEquals(HttpStatus.UNAUTHORIZED, missingRefreshCookie.getStatusCode());
     assertEquals(HttpStatus.BAD_REQUEST, oversizedPassword.getStatusCode());
-    assertThat(malformedEmail.getBody().path("code").asText()).isEqualTo("invalid_request");
+    assertThat(malformedEmail.getBody().path("code").asString()).isEqualTo("invalid_request");
     assertThat(missingPassword.getBody()).isEqualTo(malformedEmail.getBody());
     assertThat(invalidPlatform.getBody()).isEqualTo(malformedEmail.getBody());
-    assertThat(missingRefreshCookie.getBody().path("code").asText())
+    assertThat(missingRefreshCookie.getBody().path("code").asString())
         .isEqualTo("invalid_refresh_token");
     assertThat(oversizedPassword.getBody()).isEqualTo(malformedEmail.getBody());
   }
@@ -244,7 +244,7 @@ class DsAuthApplicationTests {
     assertEquals(HttpStatus.UNAUTHORIZED, refresh(original).getStatusCode());
     ResponseEntity<JsonNode> revokedSuccessor = refresh(successor);
     assertEquals(HttpStatus.UNAUTHORIZED, revokedSuccessor.getStatusCode());
-    assertThat(revokedSuccessor.getBody().path("code").asText()).isEqualTo("invalid_refresh_token");
+    assertThat(revokedSuccessor.getBody().path("code").asString()).isEqualTo("invalid_refresh_token");
   }
 
   @Test
@@ -310,7 +310,7 @@ class DsAuthApplicationTests {
 
     ResponseEntity<JsonNode> response = refresh(refreshToken);
     assertEquals(HttpStatus.UNAUTHORIZED, response.getStatusCode());
-    assertThat(response.getBody().path("code").asText()).isEqualTo("invalid_refresh_token");
+    assertThat(response.getBody().path("code").asString()).isEqualTo("invalid_refresh_token");
   }
 
   @Test
@@ -324,7 +324,7 @@ class DsAuthApplicationTests {
 
     ResponseEntity<JsonNode> response = refresh(refreshToken);
     assertEquals(HttpStatus.UNAUTHORIZED, response.getStatusCode());
-    assertThat(response.getBody().path("code").asText()).isEqualTo("invalid_refresh_token");
+    assertThat(response.getBody().path("code").asString()).isEqualTo("invalid_refresh_token");
   }
 
   @Test
@@ -335,7 +335,7 @@ class DsAuthApplicationTests {
     ResponseEntity<JsonNode> limited = login(ACTIVE_EMAIL, "wrong-3");
     assertEquals(HttpStatus.TOO_MANY_REQUESTS, limited.getStatusCode());
     assertThat(limited.getHeaders().getFirst("Retry-After")).isNotBlank();
-    assertThat(limited.getBody().path("code").asText()).isEqualTo("rate_limited");
+    assertThat(limited.getBody().path("code").asString()).isEqualTo("rate_limited");
   }
 
   @Test
@@ -348,7 +348,7 @@ class DsAuthApplicationTests {
     ResponseEntity<JsonNode> limited = refresh(unknownToken);
     assertEquals(HttpStatus.TOO_MANY_REQUESTS, limited.getStatusCode());
     assertThat(limited.getHeaders().getFirst("Retry-After")).isNotBlank();
-    assertThat(limited.getBody().path("code").asText()).isEqualTo("rate_limited");
+    assertThat(limited.getBody().path("code").asString()).isEqualTo("rate_limited");
   }
 
   @Test
@@ -362,7 +362,7 @@ class DsAuthApplicationTests {
 
     ResponseEntity<JsonNode> response = login(ACTIVE_EMAIL, PASSWORD);
     assertEquals(HttpStatus.SERVICE_UNAVAILABLE, response.getStatusCode());
-    assertThat(response.getBody().path("code").asText()).isEqualTo("service_unavailable");
+    assertThat(response.getBody().path("code").asString()).isEqualTo("service_unavailable");
   }
 
   private <T> ResponseEntity<T> post(String uri, Object body, Class<T> responseType) {
