@@ -195,7 +195,8 @@ class DsAuthApplicationTests {
     assertEquals(HttpStatus.OK, managerWebsite.getStatusCode());
     assertThat(managerWebsite.getBody()).isNull();
     assertEquals(HttpStatus.FORBIDDEN, repositorWebsite.getStatusCode());
-    assertThat(repositorWebsite.getBody().path("code").asString()).isEqualTo("platform_not_allowed");
+    assertThat(repositorWebsite.getBody().path("code").asString())
+        .isEqualTo("platform_not_allowed");
   }
 
   @Test
@@ -244,7 +245,8 @@ class DsAuthApplicationTests {
     assertEquals(HttpStatus.UNAUTHORIZED, refresh(original).getStatusCode());
     ResponseEntity<JsonNode> revokedSuccessor = refresh(successor);
     assertEquals(HttpStatus.UNAUTHORIZED, revokedSuccessor.getStatusCode());
-    assertThat(revokedSuccessor.getBody().path("code").asString()).isEqualTo("invalid_refresh_token");
+    assertThat(revokedSuccessor.getBody().path("code").asString())
+        .isEqualTo("invalid_refresh_token");
   }
 
   @Test
