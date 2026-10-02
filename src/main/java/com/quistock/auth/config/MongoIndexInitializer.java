@@ -26,19 +26,19 @@ public class MongoIndexInitializer implements ApplicationRunner {
     }
     mongoTemplate
         .indexOps(RefreshTokenDocument.class)
-        .ensureIndex(
+        .createIndex(
             new Index()
                 .on("tokenHash", Sort.Direction.ASC)
                 .unique()
                 .named("uq_refresh_token_hash"));
     mongoTemplate
         .indexOps(RefreshTokenDocument.class)
-        .ensureIndex(new Index().on("familyId", Sort.Direction.ASC).named("ix_refresh_family"));
+        .createIndex(new Index().on("familyId", Sort.Direction.ASC).named("ix_refresh_family"));
     mongoTemplate
         .indexOps(RefreshTokenDocument.class)
-        .ensureIndex(new Index().on("expiresAt", Sort.Direction.ASC).expire(Duration.ZERO));
+        .createIndex(new Index().on("expiresAt", Sort.Direction.ASC).expire(Duration.ZERO));
     mongoTemplate
         .indexOps(RateLimitCounter.class)
-        .ensureIndex(new Index().on("expiresAt", Sort.Direction.ASC).expire(Duration.ZERO));
+        .createIndex(new Index().on("expiresAt", Sort.Direction.ASC).expire(Duration.ZERO));
   }
 }

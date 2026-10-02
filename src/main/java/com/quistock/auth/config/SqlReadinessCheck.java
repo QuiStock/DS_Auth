@@ -16,6 +16,7 @@ public class SqlReadinessCheck implements ApplicationRunner {
   @Override
   public void run(ApplicationArguments arguments) {
     jdbcTemplate.queryForList(
-        "SELECT id, email, status::text AS status, password_hash FROM user_account WHERE 1 = 0");
+        "SELECT u.id, u.email, u.status::text AS status, u.password_hash, r.code, r.name "
+            + "FROM user_account u JOIN role r ON r.id = u.role_id WHERE 1 = 0");
   }
 }

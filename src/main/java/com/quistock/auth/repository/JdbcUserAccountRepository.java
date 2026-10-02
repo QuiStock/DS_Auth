@@ -11,7 +11,9 @@ import org.springframework.stereotype.Repository;
 public class JdbcUserAccountRepository implements UserAccountRepository {
   private static final int SINGLE_ACCOUNT_MATCH = 1;
   private static final String SELECT_COLUMNS =
-      "SELECT id, email, status::text AS status, password_hash FROM user_account ";
+      "SELECT u.id, u.email, u.status::text AS status, u.password_hash, "
+          + "r.code AS role_code, r.name AS role_name "
+          + "FROM user_account u JOIN role r ON r.id = u.role_id ";
   private final JdbcTemplate jdbcTemplate;
 
   public JdbcUserAccountRepository(JdbcTemplate jdbcTemplate) {
@@ -28,7 +30,9 @@ public class JdbcUserAccountRepository implements UserAccountRepository {
                     resultSet.getLong("id"),
                     resultSet.getString("email"),
                     resultSet.getString("status"),
-                    resultSet.getString("password_hash")),
+                    resultSet.getString("password_hash"),
+                    resultSet.getString("role_code"),
+                    resultSet.getString("role_name")),
             normalizedEmail);
     if (accounts.size() > SINGLE_ACCOUNT_MATCH) {
       throw new IncorrectResultSizeDataAccessException(1, accounts.size());
@@ -40,13 +44,15 @@ public class JdbcUserAccountRepository implements UserAccountRepository {
   public Optional<UserAccount> findById(long id) {
     List<UserAccount> accounts =
         jdbcTemplate.query(
-            SELECT_COLUMNS + "WHERE id = ?",
+            SELECT_COLUMNS + "WHERE u.id = ?",
             (resultSet, rowNumber) ->
                 new UserAccount(
                     resultSet.getLong("id"),
                     resultSet.getString("email"),
                     resultSet.getString("status"),
-                    resultSet.getString("password_hash")),
+                    resultSet.getString("password_hash"),
+                    resultSet.getString("role_code"),
+                    resultSet.getString("role_name")),
             id);
     return accounts.stream().findFirst();
   }

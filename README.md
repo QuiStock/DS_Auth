@@ -9,7 +9,7 @@ O contrato entre DS_Auth, DS_Backend, o schema PostgreSQL e a integração futur
 ## Requisitos
 
 - Java 25 para executar o Gradle localmente.
-- PostgreSQL com o schema QuiStock instalado e uma credencial que tenha somente `SELECT` nas colunas `id`, `email`, `status` e `password_hash` de `user_account`.
+- PostgreSQL com o schema QuiStock instalado e uma credencial que tenha somente `SELECT` nas colunas `id`, `email`, `status`, `password_hash` e `role_id` de `user_account`, além de `id`, `code` e `name` de `role`.
 - MongoDB configurado como replica set. A aplicação valida essa condição no startup porque a rotação de refresh token usa transações.
 - Chave RSA privada PKCS#8 e chave pública X.509, ambas com pelo menos 2048 bits.
 
@@ -44,12 +44,14 @@ O MongoDB deve anunciar o mesmo host alcançável pela aplicação em sua URI de
 
 ## Rotas
 
-- `POST /api/auth/login` — valida a conta `ACTIVE` no SQL e devolve access e refresh tokens.
-- `POST /api/auth/refresh` — consome o refresh atual e cria seu sucessor atomicamente.
-- `POST /api/auth/logout` — revoga a família do refresh token; retorna `204`, inclusive quando o token já não existe.
+- `POST /api/auth/login` — recebe email, senha e `platform` (`mobile` ou `website`); valida a conta `ACTIVE` e a plataforma permitida para o perfil. Gerente Regional não pode entrar pelo app; Repositor não pode entrar pelo website. Em sucesso, define os cookies `access_token` e `refresh_token`.
+- `POST /api/auth/refresh` — lê o refresh token do cookie, consome o valor atual e define os cookies com a nova sessão atomicamente.
+- `POST /api/auth/logout` — revoga a família do refresh token do cookie; retorna `204` e expira os cookies mesmo quando o token já não existe.
 - `GET /api/.well-known/jwks.json` — publica apenas as chaves públicas RS256.
 
-As respostas de login e refresh não são armazenáveis em cache. O access token dura 5 minutos; refresh tokens duram 15 dias após cada emissão. O refresh original é opaco; somente seu SHA-256 é gravado no MongoDB.
+As rotas de autenticação não enviam informações de usuário nem tokens no payload. Os tokens são enviados em cookies `HttpOnly`; o `Max-Age` segue o TTL de cada token e é expresso em segundos pelo padrão de cookies HTTP (300 para access e 1.296.000 para refresh). Respostas de login e refresh usam `Cache-Control: no-store`. O refresh original é opaco; somente seu SHA-256 é gravado no MongoDB.
+
+Configure `AUTH_COOKIE_SECURE=true` fora do ambiente local HTTPS. `SameSite` é configurável; `SameSite=None` exige cookies `Secure`. Configure o domínio e o `SameSite` de acordo com os domínios do website e da API.
 
 ## Validação
 

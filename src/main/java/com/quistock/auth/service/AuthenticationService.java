@@ -1,6 +1,6 @@
 package com.quistock.auth.service;
 
-import com.quistock.auth.dto.AuthResponse;
+import com.quistock.auth.dto.AuthTokens;
 import com.quistock.auth.dto.LoginRequest;
 import com.quistock.auth.error.ApiException;
 import com.quistock.auth.model.UserAccount;
@@ -15,6 +15,10 @@ import org.springframework.stereotype.Service;
 public class AuthenticationService {
   private static final int BCRYPT_MAX_PASSWORD_BYTES = 72;
   private static final String ACTIVE = "ACTIVE";
+  private static final String MOBILE = "mobile";
+  private static final String WEBSITE = "website";
+  private static final String REGIONAL_MANAGER = "gerente regional";
+  private static final String REPOSITOR = "repositor";
   private final UserAccountRepository userRepository;
   private final PasswordEncoder passwordEncoder;
   private final String dummyBcryptHash;
@@ -34,7 +38,7 @@ public class AuthenticationService {
     this.refreshSessionService = refreshSessionService;
   }
 
-  public AuthResponse login(LoginRequest request, String ipAddress) {
+  public AuthTokens login(LoginRequest request, String ipAddress) {
     byte[] passwordBytes = request.password().getBytes(StandardCharsets.UTF_8);
     if (passwordBytes.length > BCRYPT_MAX_PASSWORD_BYTES) {
       throw ApiException.invalidRequest();
@@ -51,10 +55,14 @@ public class AuthenticationService {
       rateLimitService.recordCredentialFailure(ipAddress, normalizedEmail);
       throw ApiException.invalidCredentials();
     }
-    return refreshSessionService.createSession(found.orElseThrow());
+    UserAccount account = found.orElseThrow();
+    if (!canUsePlatform(account, request.platform())) {
+      throw ApiException.forbiddenPlatform();
+    }
+    return refreshSessionService.createSession(account);
   }
 
-  public AuthResponse refresh(String refreshToken, String ipAddress) {
+  public AuthTokens refresh(String refreshToken, String ipAddress) {
     rateLimitService.checkRefreshRequest(ipAddress);
     return refreshSessionService.refresh(refreshToken);
   }
@@ -70,5 +78,26 @@ public class AuthenticationService {
       passwordEncoder.matches(password, dummyBcryptHash);
       return false;
     }
+  }
+
+  private boolean canUsePlatform(UserAccount account, String platform) {
+    String roleName = normalizeRoleName(account.roleName());
+    String roleCode = normalizeRoleName(account.roleCode());
+    boolean regionalManager =
+        REGIONAL_MANAGER.equals(roleName)
+            || REGIONAL_MANAGER.equals(roleCode)
+            || "regional manager".equals(roleName)
+            || "regional manager".equals(roleCode);
+    boolean repositor =
+        REPOSITOR.equals(roleName) || REPOSITOR.equals(roleCode);
+    return !(MOBILE.equals(platform) && regionalManager)
+        && !(WEBSITE.equals(platform) && repositor);
+  }
+
+  private String normalizeRoleName(String value) {
+    if (value == null) {
+      return "";
+    }
+    return value.trim().toLowerCase(Locale.ROOT).replace('_', ' ').replace('-', ' ');
   }
 }

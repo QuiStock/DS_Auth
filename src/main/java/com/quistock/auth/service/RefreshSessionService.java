@@ -1,15 +1,14 @@
 package com.quistock.auth.service;
 
 import com.mongodb.MongoException;
-import com.quistock.auth.dto.AuthResponse;
-import com.quistock.auth.dto.UserIdentity;
+import com.quistock.auth.config.JwtSettings;
+import com.quistock.auth.dto.AuthTokens;
 import com.quistock.auth.error.ApiException;
 import com.quistock.auth.model.RefreshTokenDocument;
 import com.quistock.auth.model.UserAccount;
 import com.quistock.auth.repository.MongoRefreshTokenStore;
 import com.quistock.auth.repository.UserAccountRepository;
 import java.time.Clock;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
@@ -23,12 +22,12 @@ import org.springframework.transaction.support.TransactionTemplate;
 public class RefreshSessionService {
   private static final String ACTIVE = "ACTIVE";
   private static final String CONSUMED = "CONSUMED";
-  private static final Duration REFRESH_TTL = Duration.ofDays(15);
   private final MongoRefreshTokenStore tokenStore;
   private final UserAccountRepository userRepository;
   private final JwtTokenIssuer tokenIssuer;
   private final TokenSecretFactory tokenFactory;
   private final Clock clock;
+  private final JwtSettings jwtSettings;
   private final TransactionTemplate transactionTemplate;
 
   public RefreshSessionService(
@@ -36,22 +35,24 @@ public class RefreshSessionService {
       UserAccountRepository userRepository,
       JwtTokenIssuer tokenIssuer,
       TokenSecretFactory tokenFactory,
+      JwtSettings jwtSettings,
       Clock authClock,
       @Qualifier("mongoTransactionTemplate") TransactionTemplate transactionTemplate) {
     this.tokenStore = tokenStore;
     this.userRepository = userRepository;
     this.tokenIssuer = tokenIssuer;
     this.tokenFactory = tokenFactory;
+    this.jwtSettings = jwtSettings;
     this.clock = authClock;
     this.transactionTemplate = transactionTemplate;
   }
 
-  public AuthResponse createSession(UserAccount account) {
+  public AuthTokens createSession(UserAccount account) {
     Instant now = clock.instant();
     String familyId = UUID.randomUUID().toString();
     String refreshToken = tokenFactory.newToken();
     String tokenId = UUID.randomUUID().toString();
-    AuthResponse response = response(account, refreshToken);
+    AuthTokens response = response(account, refreshToken);
     tokenStore.insert(
         new RefreshTokenDocument(
             tokenId,
@@ -60,14 +61,14 @@ public class RefreshSessionService {
             tokenFactory.hash(refreshToken),
             ACTIVE,
             now,
-            now.plus(REFRESH_TTL),
+            now.plus(jwtSettings.getRefreshTokenTtl()),
             null,
             null,
             null));
     return response;
   }
 
-  public AuthResponse refresh(String rawToken) {
+  public AuthTokens refresh(String rawToken) {
     if (!tokenFactory.hasValidShape(rawToken)) {
       throw ApiException.invalidRefreshToken();
     }
@@ -145,7 +146,7 @@ public class RefreshSessionService {
 
     String successorToken = tokenFactory.newToken();
     String successorId = UUID.randomUUID().toString();
-    AuthResponse response = response(account.orElseThrow(), successorToken);
+    AuthTokens response = response(account.orElseThrow(), successorToken);
     boolean consumed = tokenStore.consumeActive(current.id(), now, now, successorId);
     if (!consumed) {
       revokeChangedReplay(tokenHash, now);
@@ -160,7 +161,7 @@ public class RefreshSessionService {
             tokenFactory.hash(successorToken),
             ACTIVE,
             now,
-            now.plus(REFRESH_TTL),
+            now.plus(jwtSettings.getRefreshTokenTtl()),
             null,
             null,
             null));
@@ -182,19 +183,17 @@ public class RefreshSessionService {
         .ifPresent(token -> tokenStore.revokeFamily(token.familyId(), now));
   }
 
-  private AuthResponse response(UserAccount account, String refreshToken) {
+  private AuthTokens response(UserAccount account, String refreshToken) {
     String accessToken = tokenIssuer.issue(account);
-    return new AuthResponse(
+    return new AuthTokens(
         accessToken,
-        "Bearer",
-        tokenIssuer.accessTokenTtl().toSeconds(),
         refreshToken,
-        REFRESH_TTL.toSeconds(),
-        new UserIdentity(Long.toString(account.id()), account.email()));
+        tokenIssuer.accessTokenTtl(),
+        jwtSettings.getRefreshTokenTtl());
   }
 
-  private record RotationResult(AuthResponse response) {
-    private static RotationResult success(AuthResponse response) {
+  private record RotationResult(AuthTokens response) {
+    private static RotationResult success(AuthTokens response) {
       return new RotationResult(response);
     }
 

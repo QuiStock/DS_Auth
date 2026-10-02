@@ -20,6 +20,7 @@ import java.security.KeyPairGenerator;
 import java.security.interfaces.RSAPrivateKey;
 import java.security.interfaces.RSAPublicKey;
 import java.util.Base64;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -35,6 +36,9 @@ import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.core.query.Update;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -89,14 +93,22 @@ class DsAuthApplicationTests {
     mongoTemplate.remove(new Query(), RefreshTokenDocument.class);
     mongoTemplate.remove(new Query(), RateLimitCounter.class);
     jdbcTemplate.update("DELETE FROM user_account");
+    jdbcTemplate.update(
+        "INSERT INTO role (id, code, name) VALUES (1, 'REPOSITOR', 'Repositor') "
+            + "ON CONFLICT (id) DO NOTHING");
+    jdbcTemplate.update(
+        "INSERT INTO role (id, code, name) VALUES (2, 'GERENTE_REGIONAL', 'Gerente Regional') "
+            + "ON CONFLICT (id) DO NOTHING");
     String passwordHash = passwordEncoder.encode(PASSWORD);
     jdbcTemplate.update(
-        "INSERT INTO user_account (id, email, status, password_hash) VALUES (?, ?, 'ACTIVE', ?)",
+        "INSERT INTO user_account (id, role_id, email, status, password_hash) "
+            + "VALUES (?, 1, ?, 'ACTIVE', ?)",
         101L,
         ACTIVE_EMAIL,
         passwordHash);
     jdbcTemplate.update(
-        "INSERT INTO user_account (id, email, status, password_hash) VALUES (?, ?, 'INACTIVE', ?)",
+        "INSERT INTO user_account (id, role_id, email, status, password_hash) "
+            + "VALUES (?, 1, ?, 'INACTIVE', ?)",
         202L,
         "inactive@example.com",
         passwordHash);
@@ -108,18 +120,18 @@ class DsAuthApplicationTests {
 
     assertEquals(HttpStatus.OK, response.getStatusCode());
     assertThat(response.getHeaders().getCacheControl()).contains("no-store");
-    JsonNode body = response.getBody();
-    assertThat(body.path("token_type").asText()).isEqualTo("Bearer");
-    assertThat(body.path("expires_in").asLong()).isEqualTo(300);
-    assertThat(body.path("refresh_expires_in").asLong()).isEqualTo(1_296_000);
-    assertThat(body.path("user").path("id").asText()).isEqualTo("101");
-    assertThat(body.path("user").path("email").asText()).isEqualTo(ACTIVE_EMAIL);
-    String refreshToken = body.path("refresh_token").asText();
+    assertThat(response.getBody()).isNull();
+    String accessToken = cookieValue(response, "access_token");
+    String refreshToken = cookieValue(response, "refresh_token");
+    assertThat(setCookie(response, "access_token"))
+        .contains("HttpOnly", "Secure", "Path=/api", "SameSite=Lax", "Max-Age=300");
+    assertThat(setCookie(response, "refresh_token"))
+        .contains("HttpOnly", "Secure", "Path=/api", "SameSite=Lax", "Max-Age=1296000");
     RefreshTokenDocument storedToken = mongoTemplate.findAll(RefreshTokenDocument.class).getFirst();
     assertThat(storedToken.tokenHash()).isEqualTo(sha256(refreshToken));
     assertThat(storedToken.tokenHash()).isNotEqualTo(refreshToken);
 
-    SignedJWT token = SignedJWT.parse(body.path("access_token").asText());
+    SignedJWT token = SignedJWT.parse(accessToken);
     assertThat(token.getJWTClaimsSet().getSubject()).isEqualTo("101");
     assertThat(token.getJWTClaimsSet().getStringClaim("email")).isEqualTo(ACTIVE_EMAIL);
     assertThat(token.getJWTClaimsSet().getIssuer()).isEqualTo("https://auth.test.example");
@@ -157,11 +169,31 @@ class DsAuthApplicationTests {
   }
 
   @Test
-  void loginTrimsAndIgnoresEmailCaseButReturnsSqlEmail() {
+  void loginNormalizesEmailAndEnforcesRolePlatformRestrictions() {
     ResponseEntity<JsonNode> response = login("  ACTIVE@EXAMPLE.COM  ", PASSWORD);
 
     assertEquals(HttpStatus.OK, response.getStatusCode());
-    assertThat(response.getBody().path("user").path("email").asText()).isEqualTo(ACTIVE_EMAIL);
+    assertThat(response.getBody()).isNull();
+    jdbcTemplate.update(
+        "INSERT INTO user_account (id, role_id, email, status, password_hash) "
+            + "VALUES (?, 2, ?, 'ACTIVE', ?)",
+        303L,
+        "manager@example.com",
+        passwordEncoder.encode(PASSWORD));
+
+    ResponseEntity<JsonNode> managerMobile =
+        login("manager@example.com", PASSWORD, "mobile");
+    ResponseEntity<JsonNode> managerWebsite =
+        login("manager@example.com", PASSWORD, "website");
+    ResponseEntity<JsonNode> repositorWebsite =
+        login(ACTIVE_EMAIL, PASSWORD, "website");
+
+    assertEquals(HttpStatus.FORBIDDEN, managerMobile.getStatusCode());
+    assertThat(managerMobile.getBody().path("code").asText()).isEqualTo("platform_not_allowed");
+    assertEquals(HttpStatus.OK, managerWebsite.getStatusCode());
+    assertThat(managerWebsite.getBody()).isNull();
+    assertEquals(HttpStatus.FORBIDDEN, repositorWebsite.getStatusCode());
+    assertThat(repositorWebsite.getBody().path("code").asText()).isEqualTo("platform_not_allowed");
   }
 
   @Test
@@ -169,33 +201,43 @@ class DsAuthApplicationTests {
     ResponseEntity<JsonNode> malformedEmail =
         restTemplate.postForEntity(
             baseUrl() + "/auth/login",
-            Map.of("email", "not-an-email", "password", PASSWORD),
+            Map.of("email", "not-an-email", "password", PASSWORD, "platform", "mobile"),
             JsonNode.class);
     ResponseEntity<JsonNode> missingPassword =
         restTemplate.postForEntity(
-            baseUrl() + "/auth/login", Map.of("email", ACTIVE_EMAIL), JsonNode.class);
-    ResponseEntity<JsonNode> wrongRefreshField =
+            baseUrl() + "/auth/login",
+            Map.of("email", ACTIVE_EMAIL, "platform", "mobile"),
+            JsonNode.class);
+    ResponseEntity<JsonNode> invalidPlatform =
         restTemplate.postForEntity(
-            baseUrl() + "/auth/refresh", Map.of("refreshToken", "wrong-name"), JsonNode.class);
+            baseUrl() + "/auth/login",
+            Map.of("email", ACTIVE_EMAIL, "password", PASSWORD, "platform", "desktop"),
+            JsonNode.class);
+    ResponseEntity<JsonNode> missingRefreshCookie =
+        restTemplate.postForEntity(baseUrl() + "/auth/refresh", Map.of(), JsonNode.class);
     ResponseEntity<JsonNode> oversizedPassword = login(ACTIVE_EMAIL, "á".repeat(37));
 
     assertEquals(HttpStatus.BAD_REQUEST, malformedEmail.getStatusCode());
     assertEquals(HttpStatus.BAD_REQUEST, missingPassword.getStatusCode());
-    assertEquals(HttpStatus.BAD_REQUEST, wrongRefreshField.getStatusCode());
+    assertEquals(HttpStatus.BAD_REQUEST, invalidPlatform.getStatusCode());
+    assertEquals(HttpStatus.UNAUTHORIZED, missingRefreshCookie.getStatusCode());
     assertEquals(HttpStatus.BAD_REQUEST, oversizedPassword.getStatusCode());
     assertThat(malformedEmail.getBody().path("code").asText()).isEqualTo("invalid_request");
     assertThat(missingPassword.getBody()).isEqualTo(malformedEmail.getBody());
-    assertThat(wrongRefreshField.getBody()).isEqualTo(malformedEmail.getBody());
+    assertThat(invalidPlatform.getBody()).isEqualTo(malformedEmail.getBody());
+    assertThat(missingRefreshCookie.getBody().path("code").asText())
+        .isEqualTo("invalid_refresh_token");
     assertThat(oversizedPassword.getBody()).isEqualTo(malformedEmail.getBody());
   }
 
   @Test
   void refreshRotatesTokenAndReplayRevokesTheWholeFamily() {
-    String original = login(ACTIVE_EMAIL, PASSWORD).getBody().path("refresh_token").asText();
+    String original = cookieValue(login(ACTIVE_EMAIL, PASSWORD), "refresh_token");
     ResponseEntity<JsonNode> rotated = refresh(original);
-    String successor = rotated.getBody().path("refresh_token").asText();
+    String successor = cookieValue(rotated, "refresh_token");
 
     assertEquals(HttpStatus.OK, rotated.getStatusCode());
+    assertThat(rotated.getBody()).isNull();
     assertThat(successor).isNotEqualTo(original);
     assertEquals(HttpStatus.UNAUTHORIZED, refresh(original).getStatusCode());
     ResponseEntity<JsonNode> revokedSuccessor = refresh(successor);
@@ -205,7 +247,7 @@ class DsAuthApplicationTests {
 
   @Test
   void simultaneousRefreshRequestsCannotCreateTwoActiveSuccessors() {
-    String original = login(ACTIVE_EMAIL, PASSWORD).getBody().path("refresh_token").asText();
+    String original = cookieValue(login(ACTIVE_EMAIL, PASSWORD), "refresh_token");
     String originalHash = sha256(original);
     String familyId =
         mongoTemplate
@@ -241,28 +283,25 @@ class DsAuthApplicationTests {
 
   @Test
   void logoutIsIdempotentAndRevokesRefreshFamily() {
-    String refreshToken = login(ACTIVE_EMAIL, PASSWORD).getBody().path("refresh_token").asText();
-    Map<String, String> body = Map.of("refresh_token", refreshToken);
+    String refreshToken = cookieValue(login(ACTIVE_EMAIL, PASSWORD), "refresh_token");
 
-    ResponseEntity<Void> first =
-        restTemplate.postForEntity(baseUrl() + "/auth/logout", body, Void.class);
-    ResponseEntity<Void> second =
-        restTemplate.postForEntity(baseUrl() + "/auth/logout", body, Void.class);
+    ResponseEntity<Void> first = logout(refreshToken);
+    ResponseEntity<Void> second = logout(refreshToken);
 
     assertEquals(HttpStatus.NO_CONTENT, first.getStatusCode());
     assertEquals(HttpStatus.NO_CONTENT, second.getStatusCode());
+    assertThat(setCookie(first, "access_token")).contains("Max-Age=0", "HttpOnly", "Path=/api");
+    assertThat(setCookie(first, "refresh_token")).contains("Max-Age=0", "HttpOnly", "Path=/api");
     assertEquals(HttpStatus.UNAUTHORIZED, refresh(refreshToken).getStatusCode());
 
-    ResponseEntity<Void> unknown =
-        restTemplate.postForEntity(
-            baseUrl() + "/auth/logout", Map.of("refresh_token", "A".repeat(43)), Void.class);
+    ResponseEntity<Void> unknown = logout("A".repeat(43));
     assertEquals(HttpStatus.NO_CONTENT, unknown.getStatusCode());
   }
 
   @Test
   void refreshRejectsMalformedTokenAndRechecksCurrentAccountStatus() {
     assertEquals(HttpStatus.UNAUTHORIZED, refresh("not-a-refresh-token").getStatusCode());
-    String refreshToken = login(ACTIVE_EMAIL, PASSWORD).getBody().path("refresh_token").asText();
+    String refreshToken = cookieValue(login(ACTIVE_EMAIL, PASSWORD), "refresh_token");
     jdbcTemplate.update("UPDATE user_account SET status = 'INACTIVE' WHERE id = ?", 101L);
 
     ResponseEntity<JsonNode> response = refresh(refreshToken);
@@ -272,7 +311,7 @@ class DsAuthApplicationTests {
 
   @Test
   void expiredRefreshTokenCannotBeUsedEvenBeforeMongoTtlCleanup() {
-    String refreshToken = login(ACTIVE_EMAIL, PASSWORD).getBody().path("refresh_token").asText();
+    String refreshToken = cookieValue(login(ACTIVE_EMAIL, PASSWORD), "refresh_token");
     String tokenHash = sha256(refreshToken);
     mongoTemplate.updateFirst(
         Query.query(Criteria.where("tokenHash").is(tokenHash)),
@@ -311,7 +350,8 @@ class DsAuthApplicationTests {
   @Test
   void duplicateNormalizedEmailsFailClosed() {
     jdbcTemplate.update(
-        "INSERT INTO user_account (id, email, status, password_hash) VALUES (?, ?, 'ACTIVE', ?)",
+        "INSERT INTO user_account (id, role_id, email, status, password_hash) "
+            + "VALUES (?, 1, ?, 'ACTIVE', ?)",
         303L,
         " ACTIVE@example.com ",
         passwordEncoder.encode(PASSWORD));
@@ -322,13 +362,49 @@ class DsAuthApplicationTests {
   }
 
   private ResponseEntity<JsonNode> login(String email, String password) {
+    return login(email, password, "mobile");
+  }
+
+  private ResponseEntity<JsonNode> login(String email, String password, String platform) {
     return restTemplate.postForEntity(
-        baseUrl() + "/auth/login", Map.of("email", email, "password", password), JsonNode.class);
+        baseUrl() + "/auth/login",
+        Map.of("email", email, "password", password, "platform", platform),
+        JsonNode.class);
   }
 
   private ResponseEntity<JsonNode> refresh(String token) {
-    return restTemplate.postForEntity(
-        baseUrl() + "/auth/refresh", Map.of("refresh_token", token), JsonNode.class);
+    HttpHeaders headers = new HttpHeaders();
+    headers.add(HttpHeaders.COOKIE, "refresh_token=" + token);
+    return restTemplate.exchange(
+        baseUrl() + "/auth/refresh",
+        HttpMethod.POST,
+        new HttpEntity<>(headers),
+        JsonNode.class);
+  }
+
+  private ResponseEntity<Void> logout(String token) {
+    HttpHeaders headers = new HttpHeaders();
+    if (token != null) {
+      headers.add(HttpHeaders.COOKIE, "refresh_token=" + token);
+    }
+    return restTemplate.exchange(
+        baseUrl() + "/auth/logout",
+        HttpMethod.POST,
+        new HttpEntity<>(headers),
+        Void.class);
+  }
+
+  private String cookieValue(ResponseEntity<?> response, String cookieName) {
+    String setCookie = setCookie(response, cookieName);
+    return setCookie.substring((cookieName + "=").length(), setCookie.indexOf(';'));
+  }
+
+  private String setCookie(ResponseEntity<?> response, String cookieName) {
+    List<String> setCookies = response.getHeaders().getValuesAsList(HttpHeaders.SET_COOKIE);
+    return setCookies.stream()
+        .filter(value -> value.startsWith(cookieName + "="))
+        .findFirst()
+        .orElseThrow(() -> new AssertionError("Missing Set-Cookie for " + cookieName));
   }
 
   private ResponseEntity<JsonNode> awaitAndRefresh(CountDownLatch start, String token) {
