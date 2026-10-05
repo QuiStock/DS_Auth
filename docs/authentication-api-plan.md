@@ -1,3 +1,4 @@
+> Routing update (2026-10-05): APIs now default to root context. Public prefixes and client bases are deployment configuration. Historical Mobile examples below describe the earlier deployment; see README for the current environment contract.
 # Authentication API Implementation Plan
 
 - **Target repository:** [QuiStock/DS_Auth](https://github.com/QuiStock/DS_Auth)
@@ -28,7 +29,7 @@ The Mobile app has a visual registration screen, but its current fragment only i
 
 | Project | Observed state | Implementation consequence |
 | --- | --- | --- |
-| DS_Backend | Spring Boot uses the `/api` context path; every route requires a JWT. The decoder accepts RS256 and validates issuer, audience, a positive numeric subject, and email. The default audience is `quistock-api`. | DS_Auth publishes a JWKS and issues tokens with this exact contract. The backend's current default points to `/.well-known/jwks.json`, without `/api`; change it to `/api/.well-known/jwks.json`. |
+| DS_Backend | Spring Boot uses the root context by default; every route requires a JWT. The decoder accepts RS256 and validates issuer, audience, a positive numeric subject, and email. The default audience is `quistock-api`. | DS_Auth publishes a JWKS and issues tokens with this exact contract. Preserve the complete configured JWKS URL, without inferring a public prefix. |
 | PostgreSQL | `user_account` has `id BIGINT`, `role_id`, `email VARCHAR(255) UNIQUE NOT NULL`, `password_hash VARCHAR(255) NOT NULL`, and a `user_status` enum with `ACTIVE`/`INACTIVE`; `role` has `code` and `name`. The current uniqueness constraint is case-sensitive. | DS_Auth reads the account fields and role name to enforce platform access. Case-insensitive login requires a duplicate preflight and a functional unique index in the database. |
 | DS_Auth | Spring Boot 4.1/Java 25 scaffold. It includes JPA, PostgreSQL, and H2, but not MongoDB, Spring Security/JWT, controllers, or authentication logic. `ddl-auto=update` and `show-sql=true` are enabled. | Remove JPA/automatic DDL and SQL logging; use read-only SQL access and add MongoDB and JWT support. |
 | Mobile | On branch `main`, login uses Firebase Auth with email/password. Firebase Analytics and Crashlytics are also used. `UserPreferences` stores only the Firebase ID in ordinary SharedPreferences; there is no auth client, cookie manager, Bearer interceptor, or renewal. | Future login moves to DS_Auth. Keep Analytics/Crashlytics. This analysis does not change the Mobile code. |
@@ -60,16 +61,16 @@ This inspection reflects the local branches available on 2026-10-01. Recheck bra
 
 ## 4. HTTP contract
 
-DS_Auth defines the `/api` context path. The complete external paths are:
+DS_Auth uses the root context by default; the deployment defines public prefixes. The complete external paths are:
 
-- `POST /api/auth/login`
-- `POST /api/auth/refresh`
-- `POST /api/auth/logout`
-- `GET /api/.well-known/jwks.json` — public, no authentication required
+- `POST /auth/login`
+- `POST /auth/refresh`
+- `POST /auth/logout`
+- `GET /.well-known/jwks.json` — public, no authentication required
 
-These four routes are public in the security filter; refresh and logout authenticate through the `refresh_token` cookie. The API is stateless and uses no server-side HTTP session. Login and refresh responses set the `access_token` and `refresh_token` cookies with `HttpOnly`, `Path=/api`, configured `SameSite`/`Secure`/optional `Domain`, and the matching token lifetime. Return an empty body and `Cache-Control: no-store`; do not put tokens or user information in JSON. `Max-Age` uses seconds, as defined by HTTP cookies, not milliseconds. `Lax` is the default `SameSite`; `None` requires `Secure` and a CSRF/origin policy at the website gateway. Logout returns `204 No Content` and both cookies with empty values and `Max-Age=0`, preserving their original cookie scope and attributes. Paths not listed here are outside the contract.
+These four routes are public in the security filter; refresh and logout authenticate through the `refresh_token` cookie. The API is stateless and uses no server-side HTTP session. Login and refresh responses set the `access_token` and `refresh_token` cookies with `HttpOnly`, `Path=/`, configured `SameSite`/`Secure`/optional `Domain`, and the matching token lifetime. Return an empty body and `Cache-Control: no-store`; do not put tokens or user information in JSON. `Max-Age` uses seconds, as defined by HTTP cookies, not milliseconds. `Lax` is the default `SameSite`; `None` requires `Secure` and a CSRF/origin policy at the website gateway. Logout returns `204 No Content` and both cookies with empty values and `Max-Age=0`, preserving their original cookie scope and attributes. Paths not listed here are outside the contract.
 
-Use port 8090 in the local profile to avoid colliding with DS_Backend, which uses 8080. Mobile will receive an `AUTH_BASE_URL` ending in `/api/`. It may point to the same gateway as the backend if the gateway routes `/api/auth/**` and `/api/.well-known/**` to DS_Auth; if the services use separate hosts, configure the auth origin.
+Use port 8090 in the local profile to avoid colliding with DS_Backend, which uses 8080. Mobile will receive an `AUTH_BASE_URL` ending in `/api/`. It may point to the same gateway as the backend if the gateway routes `/auth/**` and `/.well-known/**` to DS_Auth; if the services use separate hosts, configure the auth origin.
 
 ### Login
 
@@ -183,7 +184,7 @@ JOSE header: `alg=RS256` and `kid` identifying the active key. The difference be
 
 During key rotation, publish the old and new keys simultaneously and sign new tokens with the new `kid`. Keep the old public key in JWKS for at least 10 minutes after signing with it stops (5-minute token lifetime plus clock-skew/cache margin), then remove it.
 
-The backend and auth service use exactly the same issuer and audience. DS_Backend points `AUTH_JWT_JWK_SET_URI` to the external path `/api/.well-known/jwks.json`. The JWKS endpoint requires no access token because the decoder must be able to fetch it without authentication.
+The backend and auth service use exactly the same issuer and audience. DS_Backend points `AUTH_JWT_JWK_SET_URI` to the external path `/.well-known/jwks.json`. The JWKS endpoint requires no access token because the decoder must be able to fetch it without authentication.
 
 ## 8. Future Mobile and backend integration
 
@@ -203,7 +204,7 @@ This section aligns future implementation; it does not authorize or make changes
 
 ### DS_Backend
 
-1. Change the local default JWKS URI to `http://localhost:8090/api/.well-known/jwks.json` and configure the corresponding public URL in deployment.
+1. Change the local default JWKS URI to `http://localhost:8090/.well-known/jwks.json` and configure the corresponding public URL in deployment.
 2. Configure the same `AUTH_JWT_ISSUER` as DS_Auth and keep audience `quistock-api`.
 3. Keep business routes authenticated. Validate RS256, issuer, audience, positive subject, and email.
 4. The backend Chat request accepts only `message`; align the Mobile DTO. For audit/user flows, use the authenticated JWT principal, never identity declared by the client.
@@ -245,7 +246,7 @@ The DS_Backend JWKS configuration, functional SQL index migration, deployment se
 - Passing command: `./gradlew spotlessCheck checkstyleMain pmdMain test jacocoTestCoverageVerification --no-daemon --console=plain` (Windows: `gradlew.bat`). All 17 tests passed, including HTTP integration, PostgreSQL, and transactional MongoDB rotation. JaCoCo line coverage was 85.17%, above the 80% minimum.
 - Spotless, Checkstyle, and PMD passed. Main and test sources also compiled successfully.
 - On this Windows environment, `TEMP`/`TMP` had to point to a local directory and `-Djdk.net.unixdomain.tmpdir` had to point to that directory because Gradle could not establish its loopback connection using the default temporary directory. This is a local environment workaround and does not change service code.
-- Tests start the server with the `/api` context path, matching the documented contract. End-to-end Mobile emulator validation, the SQL migration, and deployment secrets/URLs remain pending.
+- Tests start the server with the root context, matching the documented contract. End-to-end Mobile emulator validation, the SQL migration, and deployment secrets/URLs remain pending.
 
 ## 10. Acceptance criteria and tests
 

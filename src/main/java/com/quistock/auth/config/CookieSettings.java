@@ -9,7 +9,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class CookieSettings {
   private boolean secure = true;
   private String sameSite = "Lax";
-  private String path = "/api";
+  private String path = "/";
   private String domain;
 
   @PostConstruct
