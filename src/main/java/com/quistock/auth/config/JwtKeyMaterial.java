@@ -6,6 +6,7 @@ import com.nimbusds.jose.jwk.JWK;
 import com.nimbusds.jose.jwk.JWKSet;
 import com.nimbusds.jose.jwk.KeyUse;
 import com.nimbusds.jose.jwk.RSAKey;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
@@ -15,6 +16,7 @@ import java.security.Signature;
 import java.security.interfaces.RSAPrivateKey;
 import java.security.interfaces.RSAPublicKey;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -32,8 +34,8 @@ public class JwtKeyMaterial {
   public JwtKeyMaterial(JwtSettings settings) {
     try {
       JwtSettingsValidator.validate(settings);
-      RSAPrivateKey privateKey = readPrivateKey(settings.getPrivateKeyPath());
-      RSAPublicKey publicKey = readPublicKey(settings.getPublicKeyPath());
+      RSAPrivateKey privateKey = readPrivateKey(settings);
+      RSAPublicKey publicKey = readPublicKey(settings);
       validateKeyPair(privateKey, publicKey);
 
       this.signingKeyMaterial =
@@ -118,8 +120,30 @@ public class JwtKeyMaterial {
     }
   }
 
+  private RSAPrivateKey readPrivateKey(JwtSettings settings) throws IOException {
+    String encodedKey = settings.getPrivateKeyBase64();
+    if (encodedKey == null || encodedKey.isBlank()) {
+      return readPrivateKey(settings.getPrivateKeyPath());
+    }
+    byte[] pem = Base64.getDecoder().decode(encodedKey.trim());
+    try (InputStream input = new ByteArrayInputStream(pem)) {
+      return RsaKeyConverters.pkcs8().convert(input);
+    }
+  }
+
   private RSAPublicKey readPublicKey(String path) throws IOException {
     try (InputStream input = Files.newInputStream(Path.of(path))) {
+      return RsaKeyConverters.x509().convert(input);
+    }
+  }
+
+  private RSAPublicKey readPublicKey(JwtSettings settings) throws IOException {
+    String encodedKey = settings.getPublicKeyBase64();
+    if (encodedKey == null || encodedKey.isBlank()) {
+      return readPublicKey(settings.getPublicKeyPath());
+    }
+    byte[] pem = Base64.getDecoder().decode(encodedKey.trim());
+    try (InputStream input = new ByteArrayInputStream(pem)) {
       return RsaKeyConverters.x509().convert(input);
     }
   }
