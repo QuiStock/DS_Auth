@@ -3,6 +3,8 @@ package com.quistock.auth;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.reset;
 
 import com.nimbusds.jose.JWSVerifier;
 import com.nimbusds.jose.crypto.RSASSAVerifier;
@@ -10,6 +12,7 @@ import com.nimbusds.jose.jwk.JWKSet;
 import com.nimbusds.jose.jwk.RSAKey;
 import com.nimbusds.jwt.SignedJWT;
 import com.quistock.auth.config.RateLimitSettings;
+import com.quistock.auth.health.AuthDependencyHealthIndicator;
 import com.quistock.auth.model.RateLimitCounter;
 import com.quistock.auth.model.RefreshTokenDocument;
 import java.nio.charset.StandardCharsets;
@@ -28,6 +31,7 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.health.contributor.Health;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.data.mongodb.core.MongoTemplate;
@@ -42,6 +46,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.web.client.RestClient;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -64,6 +69,8 @@ class DsAuthApplicationTests {
   private static final MongoDBContainer MONGO = new MongoDBContainer("mongo:8.0").withReplicaSet();
 
   @LocalServerPort private int port;
+
+  @MockitoSpyBean private AuthDependencyHealthIndicator healthIndicator;
 
   private RestClient restClient;
   @Autowired private JdbcTemplate jdbcTemplate;
@@ -113,6 +120,23 @@ class DsAuthApplicationTests {
         202L,
         "inactive@example.com",
         passwordHash);
+  }
+
+  @Test
+  void healthIsPublicAndRequiresHealthyDependencies() {
+    ResponseEntity<JsonNode> healthy =
+        restClient.get().uri(baseUrl() + "/health").retrieve().toEntity(JsonNode.class);
+    assertThat(healthy.getStatusCode()).isEqualTo(HttpStatus.OK);
+    assertThat(healthy.getBody().get("status").asString()).isEqualTo("UP");
+    try {
+      doReturn(Health.down().build()).when(healthIndicator).health();
+      ResponseEntity<JsonNode> unhealthy =
+          restClient.get().uri(baseUrl() + "/health").retrieve().toEntity(JsonNode.class);
+      assertThat(unhealthy.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+      assertThat(unhealthy.getBody().size()).isEqualTo(1);
+    } finally {
+      reset(healthIndicator);
+    }
   }
 
   @Test
