@@ -50,9 +50,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import tools.jackson.databind.JsonNode;
 
 @Testcontainers
-@SpringBootTest(
-    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-    properties = "server.servlet.context-path=/api")
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class DsAuthApplicationTests {
   private static final String PASSWORD = "a-correct-test-password";
   private static final String ACTIVE_EMAIL = "active@example.com";
@@ -75,6 +73,8 @@ class DsAuthApplicationTests {
 
   @DynamicPropertySource
   static void registerTestProperties(DynamicPropertyRegistry registry) {
+    registry.add(
+        "server.servlet.context-path", () -> System.getProperty("routing.test.context", ""));
     registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
     registry.add("spring.datasource.username", POSTGRES::getUsername);
     registry.add("spring.datasource.password", POSTGRES::getPassword);
@@ -125,9 +125,9 @@ class DsAuthApplicationTests {
     String accessToken = cookieValue(response, "access_token");
     String refreshToken = cookieValue(response, "refresh_token");
     assertThat(setCookie(response, "access_token"))
-        .contains("HttpOnly", "Secure", "Path=/api", "SameSite=Lax", "Max-Age=300");
+        .contains("HttpOnly", "Secure", "Path=/", "SameSite=Lax", "Max-Age=300");
     assertThat(setCookie(response, "refresh_token"))
-        .contains("HttpOnly", "Secure", "Path=/api", "SameSite=Lax", "Max-Age=1296000");
+        .contains("HttpOnly", "Secure", "Path=/", "SameSite=Lax", "Max-Age=1296000");
     RefreshTokenDocument storedToken = mongoTemplate.findAll(RefreshTokenDocument.class).getFirst();
     assertThat(storedToken.tokenHash()).isEqualTo(sha256(refreshToken));
     assertThat(storedToken.tokenHash()).isNotEqualTo(refreshToken);
@@ -295,9 +295,9 @@ class DsAuthApplicationTests {
     assertEquals(HttpStatus.NO_CONTENT, first.getStatusCode());
     assertEquals(HttpStatus.NO_CONTENT, second.getStatusCode());
     assertThat(setCookie(first, "access_token"))
-        .contains("Max-Age=0", "HttpOnly", "Secure", "Path=/api", "SameSite=Lax");
+        .contains("Max-Age=0", "HttpOnly", "Secure", "Path=/", "SameSite=Lax");
     assertThat(setCookie(first, "refresh_token"))
-        .contains("Max-Age=0", "HttpOnly", "Secure", "Path=/api", "SameSite=Lax");
+        .contains("Max-Age=0", "HttpOnly", "Secure", "Path=/", "SameSite=Lax");
     assertEquals(HttpStatus.UNAUTHORIZED, refresh(refreshToken).getStatusCode());
 
     ResponseEntity<Void> unknown = logout("A".repeat(43));
@@ -441,7 +441,7 @@ class DsAuthApplicationTests {
   }
 
   private String baseUrl() {
-    return "http://localhost:" + port + "/api";
+    return "http://localhost:" + port + System.getProperty("routing.test.context", "");
   }
 
   private String sha256(String value) {
