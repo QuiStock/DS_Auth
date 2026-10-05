@@ -12,7 +12,7 @@ final class JwtSettingsValidator {
 
   static void validate(JwtSettings settings) {
     if (hasMissingKeySettings(settings)) {
-      throw new IllegalStateException("JWT issuer, audience, key id and key paths are required.");
+      throw new IllegalStateException("JWT issuer, audience, key id and key material are required.");
     }
     if (!Duration.ofMinutes(5).equals(settings.getAccessTokenTtl())) {
       throw new IllegalStateException("JWT access token lifetime must be exactly five minutes.");
@@ -30,8 +30,12 @@ final class JwtSettingsValidator {
     return isBlank(settings.getIssuer())
         || isBlank(settings.getAudience())
         || isBlank(settings.getKeyId())
-        || isBlank(settings.getPrivateKeyPath())
-        || isBlank(settings.getPublicKeyPath());
+        || !hasKeySource(settings.getPrivateKeyBase64(), settings.getPrivateKeyPath())
+        || !hasKeySource(settings.getPublicKeyBase64(), settings.getPublicKeyPath());
+  }
+
+  private static boolean hasKeySource(String keyBase64, String keyPath) {
+    return !isBlank(keyBase64) || !isBlank(keyPath);
   }
 
   private static boolean isAllowedIssuer(URI issuer) {

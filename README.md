@@ -40,6 +40,20 @@ CREATE UNIQUE INDEX uq_user_account_email_normalized
 3. Confirme `AUTH_JWT_ISSUER`, `AUTH_JWT_KEY_ID` e os caminhos de chave no `.env`. HTTP só é aceito para issuer em loopback; os demais ambientes exigem HTTPS.
 4. Inicie a API com `./gradlew bootRun` (Windows: `./gradlew.bat bootRun`). Com o `.env.example`, a API usa a porta `8090` e o contexto raiz.
 
+## Chaves RSA no Vercel
+
+No Vercel, configure o conteúdo PEM em Base64 nas variáveis de ambiente `AUTH_JWT_PRIVATE_KEY_BASE64` e `AUTH_JWT_PUBLIC_KEY_BASE64`. O carregador dá prioridade a essas variáveis quando preenchidas; os caminhos `AUTH_JWT_PRIVATE_KEY_PATH` e `AUTH_JWT_PUBLIC_KEY_PATH` continuam disponíveis para execução local.
+
+No PowerShell, informe o caminho de uma pasta segura fora do repositório que contenha o par de produção e gere o valor de cada arquivo:
+
+```powershell
+$keyDirectory = Read-Host "Caminho da pasta segura com os PEMs de produção"
+[Convert]::ToBase64String([IO.File]::ReadAllBytes((Join-Path $keyDirectory "private-key.pem")))
+[Convert]::ToBase64String([IO.File]::ReadAllBytes((Join-Path $keyDirectory "public-key.pem")))
+```
+
+Copie cada saída para a variável correspondente em **Vercel → Project → Settings → Environment Variables**, marque os valores como sensíveis e faça um novo deploy. Gere um par RSA exclusivo para produção; não use nem comite os arquivos de desenvolvimento. Base64 representa o conteúdo, mas não o protege sozinho: trate o valor da chave privada como segredo.
+
 O MongoDB deve anunciar o mesmo host alcançável pela aplicação em sua URI de replica set. Em execução local, um replica set de um nó pode usar `mongodb://localhost:27017/?replicaSet=rs0`; inicialize-o com `rs.initiate()` antes de iniciar a API. Em containers, configure o endereço anunciado para que o serviço também consiga alcançá-lo.
 
 ## Rotas
