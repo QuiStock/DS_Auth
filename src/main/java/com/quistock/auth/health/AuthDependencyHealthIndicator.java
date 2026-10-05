@@ -37,7 +37,7 @@ public class AuthDependencyHealthIndicator extends DependencyHealthIndicator {
     sql.queryForList(
         "SELECT u.id, u.email, u.status::text AS status, u.password_hash, r.code, r.name "
             + "FROM user_account u JOIN role r ON r.id = u.role_id WHERE 1 = 0");
-    Document hello = mongo.executeCommand(new Document("hello", 1));
+    var hello = mongo.executeCommand(new Document("hello", 1));
     if (!hello.containsKey("setName") || !Boolean.TRUE.equals(hello.get("isWritablePrimary"))) {
       return false;
     }
