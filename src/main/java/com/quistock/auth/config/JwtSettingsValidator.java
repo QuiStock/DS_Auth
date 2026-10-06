@@ -12,7 +12,8 @@ final class JwtSettingsValidator {
 
   static void validate(JwtSettings settings) {
     if (hasMissingKeySettings(settings)) {
-      throw new IllegalStateException("JWT issuer, audience, key id and key material are required.");
+      throw new IllegalStateException(
+          "JWT issuer, audience, key id and key material are required.");
     }
     if (!Duration.ofMinutes(5).equals(settings.getAccessTokenTtl())) {
       throw new IllegalStateException("JWT access token lifetime must be exactly five minutes.");
