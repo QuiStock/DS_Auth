@@ -6,22 +6,16 @@ import com.nimbusds.jose.jwk.JWK;
 import com.nimbusds.jose.jwk.JWKSet;
 import com.nimbusds.jose.jwk.KeyUse;
 import com.nimbusds.jose.jwk.RSAKey;
-import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.security.GeneralSecurityException;
 import java.security.Signature;
 import java.security.interfaces.RSAPrivateKey;
 import java.security.interfaces.RSAPublicKey;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
-import org.springframework.security.converter.RsaKeyConverters;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -34,8 +28,8 @@ public class JwtKeyMaterial {
   public JwtKeyMaterial(JwtSettings settings) {
     try {
       JwtSettingsValidator.validate(settings);
-      RSAPrivateKey privateKey = readPrivateKey(settings);
-      RSAPublicKey publicKey = readPublicKey(settings);
+      RSAPrivateKey privateKey = RsaKeyReader.readPrivateKey(settings);
+      RSAPublicKey publicKey = RsaKeyReader.readPublicKey(settings);
       validateKeyPair(privateKey, publicKey);
 
       this.signingKeyMaterial =
@@ -94,7 +88,7 @@ public class JwtKeyMaterial {
       if (!keyIds.add(parts[0])) {
         throw new IllegalStateException("JWT key ids must be unique.");
       }
-      RSAPublicKey previousKey = readPublicKey(parts[1]);
+      RSAPublicKey previousKey = RsaKeyReader.readPublicKey(parts[1]);
       validatePublicKeySize(previousKey);
       keys.add(buildPublicKey(previousKey, parts[0]));
     }
@@ -111,40 +105,6 @@ public class JwtKeyMaterial {
   private void validatePublicKeySize(RSAPublicKey publicKey) {
     if (publicKey.getModulus().bitLength() < MIN_RSA_KEY_BITS) {
       throw new IllegalStateException("RSA keys must be at least 2048 bits.");
-    }
-  }
-
-  private RSAPrivateKey readPrivateKey(String path) throws IOException {
-    try (InputStream input = Files.newInputStream(Path.of(path))) {
-      return RsaKeyConverters.pkcs8().convert(input);
-    }
-  }
-
-  private RSAPrivateKey readPrivateKey(JwtSettings settings) throws IOException {
-    String encodedKey = settings.getPrivateKeyBase64();
-    if (encodedKey == null || encodedKey.isBlank()) {
-      return readPrivateKey(settings.getPrivateKeyPath());
-    }
-    byte[] pem = Base64.getDecoder().decode(encodedKey.trim());
-    try (InputStream input = new ByteArrayInputStream(pem)) {
-      return RsaKeyConverters.pkcs8().convert(input);
-    }
-  }
-
-  private RSAPublicKey readPublicKey(String path) throws IOException {
-    try (InputStream input = Files.newInputStream(Path.of(path))) {
-      return RsaKeyConverters.x509().convert(input);
-    }
-  }
-
-  private RSAPublicKey readPublicKey(JwtSettings settings) throws IOException {
-    String encodedKey = settings.getPublicKeyBase64();
-    if (encodedKey == null || encodedKey.isBlank()) {
-      return readPublicKey(settings.getPublicKeyPath());
-    }
-    byte[] pem = Base64.getDecoder().decode(encodedKey.trim());
-    try (InputStream input = new ByteArrayInputStream(pem)) {
-      return RsaKeyConverters.x509().convert(input);
     }
   }
 
