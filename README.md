@@ -114,11 +114,17 @@ pode acrescentar/remover o prefixo público. Nenhum outro endpoint Actuator é e
 É readiness, não liveness: uma dependência indisponível deve retirar a instância do
 tráfego, sem provocar reinícios em cascata.
 
-Cada requisição verifica as dependências novamente, sem cache de resultados. O limite
-total é `HEALTH_TIMEOUT_MS` (4000 ms por padrão, máximo 30000). Há no máximo duas
-verificações simultâneas por instância; saturação também retorna 503. SQL usa timeout
-de query de dois segundos. Uma operação de driver que não respeite interrupção pode
-continuar até o timeout do próprio driver, mas a resposta HTTP não espera por ela.
+Os resultados ficam em cache por cinco segundos por padrão. Configure
+`HEALTH_CACHE_TTL` (por exemplo `10s` ou `0ms` para desativar). Chamadas concorrentes
+compartilham uma verificação em andamento, mesmo quando um chamador excede o timeout.
+Uma mudança de estado pode levar até o TTL para aparecer. O limite de espera por
+chamada é `HEALTH_TIMEOUT_MS` (4000 ms por padrão, máximo 30000); SQL usa timeout
+de query de dois segundos.
+
+O pool PostgreSQL usa no máximo três conexões por instância e não exige um mínimo
+de conexões ociosas. `DB_POOL_MAX_SIZE` e `DB_POOL_MIN_IDLE` permitem ajustar esses
+limites. Dimensione todas as réplicas e outros clientes para caber no limite do
+serviço PostgreSQL.
 
 Auth verifica as permissões de leitura das tabelas de autenticação no PostgreSQL,
 um primary MongoDB de replica set e uma leitura em transação na coleção de refresh.

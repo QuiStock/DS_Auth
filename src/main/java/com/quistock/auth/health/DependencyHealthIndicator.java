@@ -4,15 +4,19 @@ import jakarta.annotation.PreDestroy;
 import java.io.IOException;
 import java.sql.SQLException;
 import java.text.ParseException;
+import java.time.Duration;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
+import java.util.concurrent.FutureTask;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicLong;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.health.contributor.Health;
 import org.springframework.boot.health.contributor.HealthIndicator;
 
@@ -20,6 +24,8 @@ import org.springframework.boot.health.contributor.HealthIndicator;
 public abstract class DependencyHealthIndicator implements HealthIndicator {
   private static final Logger LOGGER = LoggerFactory.getLogger(DependencyHealthIndicator.class);
   private final long timeoutMs;
+  private Check inFlight;
+  private long cacheNanos;
   private final ThreadPoolExecutor executor =
       new ThreadPoolExecutor(
           0,
@@ -36,17 +42,26 @@ public abstract class DependencyHealthIndicator implements HealthIndicator {
     this.timeoutMs = timeoutMs;
   }
 
+  @Autowired
+  final void configureCache(
+      @Value("${management.endpoint.health.cache.time-to-live:5s}") Duration cacheTtl) {
+    if (cacheTtl.isNegative()) {
+      throw new IllegalArgumentException("Health cache TTL must not be negative.");
+    }
+    cacheNanos = cacheTtl.toNanos();
+  }
+
   @Override
   public Health health() {
-    Future<Boolean> check;
+    Check check;
     try {
-      check = executor.submit(this::dependenciesAvailable);
+      check = currentCheck();
     } catch (RejectedExecutionException exception) {
       LOGGER.warn("Health check capacity exhausted.");
       return Health.down().build();
     }
     try {
-      return Boolean.TRUE.equals(check.get(timeoutMs, TimeUnit.MILLISECONDS))
+      return Boolean.TRUE.equals(check.task().get(timeoutMs, TimeUnit.MILLISECONDS))
           ? Health.up().build()
           : Health.down().build();
     } catch (ExecutionException | TimeoutException exception) {
@@ -56,10 +71,30 @@ public abstract class DependencyHealthIndicator implements HealthIndicator {
     } catch (InterruptedException exception) {
       Thread.currentThread().interrupt();
       return Health.down().build();
-    } finally {
-      check.cancel(true);
     }
   }
+
+  private synchronized Check currentCheck() {
+    if (inFlight == null
+        || (inFlight.task().isDone()
+            && System.nanoTime() - inFlight.completedAt().get() >= cacheNanos)) {
+      AtomicLong completedAt = new AtomicLong();
+      FutureTask<Boolean> task =
+          new FutureTask<>(
+              () -> {
+                try {
+                  return dependenciesAvailable();
+                } finally {
+                  completedAt.set(System.nanoTime());
+                }
+              });
+      executor.execute(task);
+      inFlight = new Check(task, completedAt);
+    }
+    return inFlight;
+  }
+
+  private record Check(FutureTask<Boolean> task, AtomicLong completedAt) {}
 
   protected abstract boolean dependenciesAvailable()
       throws SQLException, IOException, InterruptedException, ParseException;
