@@ -3,11 +3,13 @@ package com.quistock.auth.health;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Duration;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.health.contributor.Health;
 import org.springframework.boot.health.contributor.Status;
 
 class DependencyHealthIndicatorTest {
@@ -52,9 +54,10 @@ class DependencyHealthIndicatorTest {
           }
         };
     try (var callers = Executors.newFixedThreadPool(2)) {
-      var first = callers.submit(indicator::health);
+      Callable<Health> healthCheck = indicator::health;
+      var first = callers.submit(healthCheck);
       assertThat(started.await(1, TimeUnit.SECONDS)).isTrue();
-      var second = callers.submit(indicator::health);
+      var second = callers.submit(healthCheck);
       assertThat(first.get(1, TimeUnit.SECONDS).getStatus()).isEqualTo(Status.DOWN);
       assertThat(second.get(1, TimeUnit.SECONDS).getStatus()).isEqualTo(Status.DOWN);
       assertThat(calls.get()).isEqualTo(1);
