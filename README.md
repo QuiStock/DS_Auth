@@ -95,6 +95,8 @@ O gateway define e remove prefixos públicos, por exemplo `/api/auth-service` e
 `/api/core-service`. Configure `AUTH_COOKIE_PATH` com o prefixo público da Auth
 (`/` no acesso direto), independentemente do contexto interno. Os cookies continuam
 configuráveis por `AUTH_COOKIE_DOMAIN`, `AUTH_COOKIE_SECURE` e `AUTH_COOKIE_SAME_SITE`.
+O CORS aceita qualquer origem, método e header e permite credenciais; a origem da
+requisição é refletida na resposta.
 
 Configure o mesmo `AUTH_JWT_ISSUER` e `AUTH_JWT_AUDIENCE` nas duas APIs. Backend recebe
 `AUTH_JWT_JWK_SET_URI` completo, por exemplo `http://localhost:8090/.well-known/jwks.json`

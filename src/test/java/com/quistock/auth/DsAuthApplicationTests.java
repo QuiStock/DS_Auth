@@ -35,6 +35,7 @@ import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
@@ -113,6 +114,41 @@ class DsAuthApplicationTests {
         202L,
         "inactive@example.com",
         passwordHash);
+  }
+
+  @Test
+  void allowsCredentialedCorsFromAnyOrigin() {
+    for (String origin : List.of("https://admin.example", "https://other.example")) {
+      ResponseEntity<Void> preflight =
+          restClient
+              .method(HttpMethod.OPTIONS)
+              .uri(baseUrl() + "/auth/login")
+              .header(HttpHeaders.ORIGIN, origin)
+              .header("Access-Control-Request-Method", "POST")
+              .header("Access-Control-Request-Headers", "content-type,x-custom-header")
+              .retrieve()
+              .toBodilessEntity();
+      assertThat(preflight.getStatusCode()).isEqualTo(HttpStatus.OK);
+      assertThat(preflight.getHeaders().getFirst("Access-Control-Allow-Origin")).isEqualTo(origin);
+      assertThat(preflight.getHeaders().getFirst("Access-Control-Allow-Credentials"))
+          .isEqualTo("true");
+      assertThat(preflight.getHeaders().getFirst("Access-Control-Allow-Headers"))
+          .contains("x-custom-header");
+
+      ResponseEntity<JsonNode> actual =
+          restClient
+              .post()
+              .uri(baseUrl() + "/auth/login")
+              .header(HttpHeaders.ORIGIN, origin)
+              .body(Map.of("email", ACTIVE_EMAIL, "password", PASSWORD, "platform", "mobile"))
+              .retrieve()
+              .toEntity(JsonNode.class);
+      assertThat(actual.getStatusCode()).isEqualTo(HttpStatus.OK);
+      assertThat(actual.getHeaders().getFirst("Access-Control-Allow-Origin")).isEqualTo(origin);
+      assertThat(actual.getHeaders().getFirst("Access-Control-Allow-Credentials"))
+          .isEqualTo("true");
+      assertThat(actual.getHeaders().getValuesAsList(HttpHeaders.SET_COOKIE)).isNotEmpty();
+    }
   }
 
   @Test
