@@ -18,7 +18,8 @@ public class AuthenticationService {
   private static final String MOBILE = "mobile";
   private static final String WEBSITE = "website";
   private static final String REGIONAL_MANAGER = "gerente regional";
-  private static final String REPOSITOR = "repositor";
+  private static final String EMPLOYEE = "funcionario";
+  private static final String LEGACY_REPOSITOR = "repositor";
   private final UserAccountRepository userRepository;
   private final PasswordEncoder passwordEncoder;
   private final String dummyBcryptHash;
@@ -88,9 +89,14 @@ public class AuthenticationService {
             || REGIONAL_MANAGER.equals(roleCode)
             || "regional manager".equals(roleName)
             || "regional manager".equals(roleCode);
-    boolean repositor = REPOSITOR.equals(roleName) || REPOSITOR.equals(roleCode);
+    boolean employee =
+        EMPLOYEE.equals(roleCode)
+            || EMPLOYEE.equals(roleName)
+            || "funcionário".equals(roleName)
+            || LEGACY_REPOSITOR.equals(roleCode)
+            || LEGACY_REPOSITOR.equals(roleName);
     return !(MOBILE.equals(platform) && regionalManager)
-        && !(WEBSITE.equals(platform) && repositor);
+        && !(WEBSITE.equals(platform) && employee);
   }
 
   private String normalizeRoleName(String value) {
