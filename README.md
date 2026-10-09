@@ -58,7 +58,7 @@ O MongoDB deve anunciar o mesmo host alcançável pela aplicação em sua URI de
 
 ## Rotas
 
-- `POST /auth/login` — recebe email, senha e `platform` (`mobile` ou `website`); valida a conta `ACTIVE` e a plataforma permitida para o perfil. Gerente Regional não pode entrar pelo app; Repositor não pode entrar pelo website. Em sucesso, define os cookies `access_token` e `refresh_token`.
+- `POST /auth/login` — recebe email, senha e `platform` (`mobile` ou `website`); valida a conta `ACTIVE` e a plataforma permitida para o perfil. Gerente Regional não pode entrar pelo app; Funcionário não pode entrar pelo website (a role legada Repositor também é bloqueada). Em sucesso, define os cookies `access_token` e `refresh_token`.
 - `POST /auth/refresh` — lê o refresh token do cookie, consome o valor atual e define os cookies com a nova sessão atomicamente.
 - `POST /auth/logout` — revoga a família do refresh token do cookie; retorna `204` e expira os cookies mesmo quando o token já não existe.
 - `GET /.well-known/jwks.json` — publica apenas as chaves públicas RS256.
