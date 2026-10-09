@@ -95,8 +95,7 @@ public class AuthenticationService {
             || "funcionário".equals(roleName)
             || LEGACY_REPOSITOR.equals(roleCode)
             || LEGACY_REPOSITOR.equals(roleName);
-    return !(MOBILE.equals(platform) && regionalManager)
-        && !(WEBSITE.equals(platform) && employee);
+    return !(MOBILE.equals(platform) && regionalManager) && !(WEBSITE.equals(platform) && employee);
   }
 
   private String normalizeRoleName(String value) {
