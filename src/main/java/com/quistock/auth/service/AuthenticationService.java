@@ -89,13 +89,16 @@ public class AuthenticationService {
             || REGIONAL_MANAGER.equals(roleCode)
             || "regional manager".equals(roleName)
             || "regional manager".equals(roleCode);
-    boolean employee =
-        EMPLOYEE.equals(roleCode)
-            || EMPLOYEE.equals(roleName)
-            || "funcionário".equals(roleName)
-            || LEGACY_REPOSITOR.equals(roleCode)
-            || LEGACY_REPOSITOR.equals(roleName);
+    boolean employee = isEmployeeRole(roleName, roleCode);
     return !(MOBILE.equals(platform) && regionalManager) && !(WEBSITE.equals(platform) && employee);
+  }
+
+  private boolean isEmployeeRole(String roleName, String roleCode) {
+    return EMPLOYEE.equals(roleCode)
+        || EMPLOYEE.equals(roleName)
+        || "funcionário".equals(roleName)
+        || LEGACY_REPOSITOR.equals(roleCode)
+        || LEGACY_REPOSITOR.equals(roleName);
   }
 
   private String normalizeRoleName(String value) {
