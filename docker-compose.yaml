@@ -1,0 +1,6 @@
+services:
+  api:
+    container_name: quistock-auth
+    build: .
+    ports: ["8090:8080"]
+    env_file: .env
