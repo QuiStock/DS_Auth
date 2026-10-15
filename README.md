@@ -169,3 +169,26 @@ authentication responses use Cache-Control: no-store. Core has a separate
 A failed refresh with 403 means the caller must obtain/send the Auth CSRF pair.
 401 still means invalid/expired/replayed refresh credentials after CSRF succeeds.
 No proxy/frontend/mobile changes are included in this implementation.
+
+## Documentação automática (Swagger/OpenAPI)
+
+Com a API iniciada, acesse `/swagger-ui.html` (ou `/swagger-ui/index.html`).
+O contrato gerado fica em `/v3/api-docs` (JSON) e `/v3/api-docs.yaml` (YAML).
+Esses caminhos são públicos e relativos à raiz/contexto da Auth. No acesso
+direto ao Render não acrescente `/auth`; um gateway que use esse prefixo deve
+encaminhar também as rotas da documentação e seus arquivos estáticos.
+
+A documentação descreve login, refresh, logout, CSRF, JWKS público e health,
+os campos obrigatórios, os cookies/Max-Age, permissões por plataforma e os
+status de sucesso/erro. Controllers, DTOs e validações alimentam o OpenAPI;
+a geração usa springdoc 3.1.1: https://springdoc.org/getting-started.html
+
+Para usar `Try it out`, envie `POST /login` com email/password/platform.
+A resposta é vazia e o navegador armazena os cookies HTTP-only. Execute
+`GET /csrf`, preserve AUTH-XSRF-TOKEN e copie o campo `token` do JSON para o
+parâmetro `X-CSRF-TOKEN` exibido em refresh/logout. A UI envia credenciais.
+O browser não permite definir manualmente o cookie HTTP-only via Authorize.
+O cookie CSRF da Core e seu header `X-XSRF-TOKEN` são diferentes dos da Auth.
+Não há nova variável de ambiente obrigatória para habilitar a documentação.
+Se o gateway remover um prefixo público, alinhe os headers encaminhados e o
+contexto da aplicação para que os URLs gerados pelo Swagger preservem esse prefixo.
