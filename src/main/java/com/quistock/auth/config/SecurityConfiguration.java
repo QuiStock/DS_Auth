@@ -31,7 +31,9 @@ public class SecurityConfiguration {
                 requests
                     .requestMatchers(HttpMethod.GET, "/health")
                     .permitAll()
-                    .requestMatchers("/auth/**", "/.well-known/jwks.json")
+                    .requestMatchers(HttpMethod.POST, "/login", "/logout", "/refresh")
+                    .permitAll()
+                    .requestMatchers("/.well-known/jwks.json")
                     .permitAll()
                     .anyRequest()
                     .denyAll())
