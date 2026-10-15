@@ -1,10 +1,11 @@
+> Security and chat update (2026-10-12): Core accepts either the HTTP-only access cookie or Bearer, rejects simultaneous sources, and requires CSRF on cookie-authenticated writes. GET /csrf supplies the Auth CSRF pair for refresh/logout; GET /api/csrf supplies the separate Core pair. CORS uses exact CORS_ALLOWED_ORIGINS. Core chat now accepts message, optional conversation_id and is_resuming_conversation, and forwards to AI. The repository observations below are historical; no Mobile code is changed by this revision.
 > Routing update (2026-10-05): APIs now default to root context. Public prefixes and client bases are deployment configuration. Historical Mobile examples below describe the earlier deployment; see README for the current environment contract.
 # Authentication API Implementation Plan
 
 - **Target repository:** [QuiStock/DS_Auth](https://github.com/QuiStock/DS_Auth)
 - **Document location:** `docs/authentication-api-plan.md` in QuiStock/DS_Auth
 - **Repository review date:** 2026-10-02
-- **Status:** the platform and cookie contract described in this revision is implemented in the PR branch; CI validation is pending. Deployment secrets and URLs, the SQL migration, and future Mobile integration remain pending. This implementation does not modify the Mobile repository.
+- **Status:** the current Auth implementation passed 22 local tests with both the default context and /migration on 2026-10-12. Spotless, Checkstyle, PMD, assembly and coverage validation passed; line coverage is 83.59%. Remote CI, deployment configuration and future Mobile integration are separate validation/delivery steps. This implementation does not modify the Mobile repository.
 
 This document defines the contract between DS_Auth, DS_Backend, the PostgreSQL schema, and the QuiStock Android app. The local API implementation is described in section 9.1; Mobile integration and production configuration are later deliverables.
 
@@ -66,9 +67,10 @@ DS_Auth uses the root context by default; the deployment defines public prefixes
 - `POST /login`
 - `POST /refresh`
 - `POST /logout`
+- `GET /csrf` — public, returns a CSRF token only
 - `GET /.well-known/jwks.json` — public, no authentication required
 
-These four routes are public in the security filter; refresh and logout authenticate through the `refresh_token` cookie. The API is stateless and uses no server-side HTTP session. Login and refresh responses set the `access_token` and `refresh_token` cookies with `HttpOnly`, `Path=/`, configured `SameSite`/`Secure`/optional `Domain`, and the matching token lifetime. Return an empty body and `Cache-Control: no-store`; do not put tokens or user information in JSON. `Max-Age` uses seconds, as defined by HTTP cookies, not milliseconds. `Lax` is the default `SameSite`; `None` requires `Secure` and a CSRF/origin policy at the website gateway. Logout returns `204 No Content` and both cookies with empty values and `Max-Age=0`, preserving their original cookie scope and attributes. Paths not listed here are outside the contract.
+These five routes are public in the security filter; refresh and logout authenticate through the `refresh_token` cookie. The API is stateless and uses no server-side HTTP session. Login and refresh responses set the `access_token` and `refresh_token` cookies with `HttpOnly`, `Path=/`, configured `SameSite`/`Secure`/optional `Domain`, and the matching token lifetime. Return an empty body and `Cache-Control: no-store`; do not put tokens or user information in JSON. `Max-Age` uses seconds, as defined by HTTP cookies, not milliseconds. `Lax` is the default `SameSite`; `None` requires `Secure`. Auth enforces CSRF on cookie-authenticated refresh/logout and CORS permits only configured frontend origins. Logout returns `204 No Content` and both cookies with empty values and `Max-Age=0`, preserving their original cookie scope and attributes. Paths not listed here are outside the contract.
 
 Use port 8090 in the local profile to avoid colliding with DS_Backend, which uses 8080. Mobile receives a deployment-configured `AUTH_BASE_URL` with a trailing slash. Retrofit paths are relative: `login`, `refresh`, and `logout`. For direct access, use the auth origin with `/`; behind a gateway, include its public auth prefix in the base URL and strip that prefix before forwarding. Route these three POST endpoints and `/.well-known/jwks.json` to DS_Auth. The legacy `/auth/login`, `/auth/refresh`, and `/auth/logout` routes are no longer served; deploy client and gateway updates together with the API.
 
@@ -92,7 +94,7 @@ Unknown email, incorrect password, and `INACTIVE` account return the same `401` 
 
 ### Refresh
 
-Request: send the `refresh_token` cookie from the login response; there is no JSON request body.
+Request: send the `refresh_token` cookie from login, the `AUTH-XSRF-TOKEN` cookie from GET /csrf, and its returned token in X-CSRF-TOKEN. There is no JSON request body. Missing or invalid CSRF returns 403 before rotation.
 
 Success: `200 OK`, empty body, and new `access_token`/`refresh_token` cookies. Consume the submitted token in the same transaction that creates its successor. Cookie max ages are reset to 300 and 1,296,000 seconds from issuance.
 
@@ -100,7 +102,7 @@ Unknown, expired, consumed, or revoked tokens return `401`. If a consumed token 
 
 ### Logout
 
-Request: send the `refresh_token` cookie; there is no JSON request body.
+Request: send the `refresh_token` cookie plus the Auth CSRF cookie/header pair. There is no JSON request body. Missing or invalid CSRF returns 403 before revocation.
 
 Revoke the family of the supplied refresh token and return `204 No Content`. Unknown or already revoked tokens also return `204`, making the operation idempotent. Return both issued cookie names with empty values and `Max-Age=0`, preserving the original path, domain, `SameSite`, `Secure`, and `HttpOnly` attributes. The current access token remains usable in DS_Backend until it expires.
 
@@ -192,13 +194,13 @@ This section aligns future implementation; it does not authorize or make changes
 
 ### Mobile
 
-1. Add a Retrofit `AuthApi` for `login`, `refresh`, and `logout`, with explicit snake_case DTOs using `@SerialName`; the current converter ignores unknown fields but does not automatically convert property names.
-2. Replace the `AuthenticationPort` binding from `FirebaseAuthenticationPort` with a Retrofit implementation. Map `user.id`/`email` to the local `User` model and map `invalid_credentials` to the existing generic login error.
+1. Add a Retrofit `AuthApi` for `login`, `csrf`, `refresh`, and `logout`, with explicit snake_case DTOs using `@SerialName`; the current converter ignores unknown fields but does not automatically convert property names.
+2. Replace the `AuthenticationPort` binding from `FirebaseAuthenticationPort` with a Retrofit implementation. Treat the empty successful login response as an authenticated session and map `invalid_credentials` to the existing generic login error. User profile data requires a separate Core contract; it is not returned by Auth.
 3. Use the native HTTP cookie manager to retain the `HttpOnly` cookies with their server-provided expiry. Never put token values in UI models, logs, Analytics, or Crashlytics.
-4. On startup, call refresh and let the cookie manager attach the `refresh_token`; if the API returns `401`, clear the cookie manager and show login. `429`/`503`/network errors are transient and must not delete a potentially valid refresh token.
-5. Use a separate HTTP client for auth and business calls. For DS_Backend's existing Bearer contract, the native client may read the access cookie from its private cookie jar and set `Authorization: Bearer <access_token>`; browser JavaScript must never read an `HttpOnly` cookie. The website must use a same-site gateway/backend integration that accepts the access cookie or translates it to the current Bearer contract. Refresh is serialized, and the business client retries a `401` once after renewal.
-6. Logout attempts the API call and clears the cookie manager, including when offline; the server also expires both cookies on a successful response.
-7. Stop treating the Firebase UID as identity. The SQL ID in the token is the identity accepted by the backend. `/api/chat` accepts only `message`; remove `user_id` from the Mobile DTO. If a future route needs the user, get the identity from the authenticated server-side subject.
+4. On startup, obtain the Auth CSRF pair, call refresh with its header, and let the cookie manager attach the `refresh_token`; if the API returns `401`, clear the cookie manager and show login. `429`/`503`/network errors are transient and must not delete a potentially valid refresh token.
+5. Use a separate HTTP client for auth and business calls. Core accepts its access cookie with CSRF on writes, or a Bearer token without automatic cookie authentication. A native client choosing Bearer must omit the access cookie to avoid ambiguous credentials; browser JavaScript must never read an `HttpOnly` cookie. The website sends the access cookie and Core CSRF pair; a same-origin proxy remains a separate deployment task to avoid third-party cookie limitations. Refresh is serialized, and the business client retries a `401` once after renewal.
+6. Logout obtains/sends the Auth CSRF pair, attempts the API call and clears the cookie manager, including when offline; the server also expires both cookies on a successful response.
+7. Stop treating the Firebase UID as identity. The SQL ID in the token is the identity accepted by the backend. `/api/chat` accepts `message`, optional `conversation_id`, and `is_resuming_conversation`; remove `user_id` from the Mobile DTO. If a future route needs the user, get the identity from the authenticated server-side subject.
 8. Keep Firebase Analytics and Crashlytics if still needed; remove Firebase Auth only.
 9. Configure `AUTH_BASE_URL` during build/deploy. Mobile sets `usesCleartextTraffic=false`, while `.env.example` suggests an HTTP emulator URL; local tests must use development HTTPS or allow HTTP only in debug builds, never release builds.
 
@@ -272,7 +274,7 @@ The DS_Backend JWKS configuration, functional SQL index migration, deployment se
 - Refresh token survives process restart in protected storage; access token stays in memory and can be renewed.
 - A backend `401` triggers one renewal and at most one request retry; failed refresh clears the session and returns to login.
 - Concurrent client refreshes are serialized; logout clears the session even while offline.
-- Protected Mobile → `POST /api/chat` carries a valid Bearer token and sends the agreed DTO (`message`).
+- Protected Mobile → `POST /api/chat` carries a valid Bearer token and sends the conversation DTO (`message`, optional `conversation_id`, `is_resuming_conversation`). A Bearer client must omit the access cookie.
 - DS_Backend validates tokens published by DS_Auth; a route without a token or with an invalid token returns `401`.
 - The external SQL provisioning flow creates a valid account and BCrypt hash before a real user can log in.
 - The current registration screen is not an acceptance criterion for DS_Auth and remains without persistence until a separate delivery.
@@ -286,7 +288,7 @@ The DS_Backend JWKS configuration, functional SQL index migration, deployment se
 5. Implement documents, indexes, refresh transactions, replay handling, logout, rate limiting, and errors. **Implemented locally.**
 6. Update DS_Backend JWKS configuration.
 7. In a future task, update Mobile for login/logout/refresh, protected storage, and Retrofit Bearer authentication; align chat requests and network states.
-8. Run unit tests, PostgreSQL/Mongo replica set integration tests, and Gradle gates after the platform and cookie contract changes. The initial implementation passed all 17 tests on 2026-10-02; this revision still needs validation. Validate end-to-end on the emulator in the Mobile delivery.
+8. Run unit tests, PostgreSQL/Mongo replica set integration tests, and Gradle gates after the platform and cookie contract changes. **Passed locally on 2026-10-12:** 22 tests, zero failures/skips, default context and /migration, 83.59% line coverage. Validate end-to-end on the emulator in the Mobile delivery.
 9. Configure secrets, issuer, public JWKS, HTTPS URLs, read-only credentials, and monitoring per environment before releasing the API.
 
 ## 12. Production dependencies

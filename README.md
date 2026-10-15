@@ -67,7 +67,7 @@ As rotas de autenticação não enviam informações de usuário nem tokens no p
 
 Configure `AUTH_COOKIE_SECURE=true` fora do ambiente local HTTPS. `SameSite` é configurável; `SameSite=None` exige cookies `Secure`. Configure o domínio e o `SameSite` de acordo com os domínios do website e da API.
 
-As rotas antigas `/auth/login`, `/auth/refresh` e `/auth/logout` não são mais atendidas.
+As rotas antigas `/login`, `/refresh` e `/logout` não são mais atendidas.
 Atualize os clientes e publique a configuração do gateway junto com a API. No acesso
 direto, use contexto vazio e `AUTH_COOKIE_PATH=/`. Um prefixo público configurado
 no gateway deve ser removido antes de encaminhar a requisição à API.
@@ -100,7 +100,7 @@ O gateway define e remove prefixos públicos, por exemplo `/api/auth-service` e
 `/api/core-service`. Configure `AUTH_COOKIE_PATH` com o prefixo público da Auth
 (`/` no acesso direto), independentemente do contexto interno. Os cookies continuam
 configuráveis por `AUTH_COOKIE_DOMAIN`, `AUTH_COOKIE_SECURE` e `AUTH_COOKIE_SAME_SITE`.
-O CORS aceita qualquer origem, método e header e permite credenciais; a origem da
+O CORS permite as origens exatas de CORS_ALLOWED_ORIGINS com credenciais; a origem da
 requisição é refletida na resposta.
 
 Configure o mesmo `AUTH_JWT_ISSUER` e `AUTH_JWT_AUDIENCE` nas duas APIs. Backend recebe
@@ -148,3 +148,24 @@ Smoke de ambiente a executar posteriormente: consultar a rota sem token, exigir 
 cada dependência deve recuperar 200. Repetir pelo gateway e com contexto configurado.
 JWT em cache não deve mascarar falha do JWKS. Complementar o health com login,
 refresh, logout e consulta autenticada para validar o contrato funcional completo.
+
+## CSRF for refresh/logout
+
+GET /csrf returns a masked CSRF token as
+`{"headerName":"X-CSRF-TOKEN","token":"..."}` and sets the HTTP-only
+AUTH-XSRF-TOKEN cookie. Preserve that cookie and send the returned token in the
+X-CSRF-TOKEN header for POST /refresh and POST /logout when a
+refresh_token cookie is present. Missing or mismatched CSRF returns 403 before
+session rotation/revocation. Login keeps its existing email/password/platform
+contract and empty response with two HTTP-only authentication cookies.
+
+CORS_ALLOWED_ORIGINS accepts comma-separated exact frontend origins, including
+scheme and port. Empty means same-origin only; wildcard origins fail startup.
+A proxy that preserves Origin must also have its frontend origin configured.
+Only configured origins may read CSRF tokens with credentials. Both CSRF and
+authentication responses use Cache-Control: no-store. Core has a separate
+/api/csrf endpoint, XSRF-TOKEN cookie and X-XSRF-TOKEN header; do not reuse its token for Auth.
+
+A failed refresh with 403 means the caller must obtain/send the Auth CSRF pair.
+401 still means invalid/expired/replayed refresh credentials after CSRF succeeds.
+No proxy/frontend/mobile changes are included in this implementation.

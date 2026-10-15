@@ -139,7 +139,7 @@ class DsAuthApplicationTests {
   }
 
   @Test
-  void allowsCredentialedCorsFromAnyOrigin() {
+  void allowsCredentialedCorsFromConfiguredOrigins() {
     for (String origin : List.of("https://admin.example", "https://other.example")) {
       ResponseEntity<Void> preflight =
           restClient
@@ -147,7 +147,7 @@ class DsAuthApplicationTests {
               .uri(baseUrl() + "/login")
               .header(HttpHeaders.ORIGIN, origin)
               .header("Access-Control-Request-Method", "POST")
-              .header("Access-Control-Request-Headers", "content-type,x-custom-header")
+              .header("Access-Control-Request-Headers", "content-type,x-csrf-token")
               .retrieve()
               .toBodilessEntity();
       assertThat(preflight.getStatusCode()).isEqualTo(HttpStatus.OK);
@@ -155,7 +155,7 @@ class DsAuthApplicationTests {
       assertThat(preflight.getHeaders().getFirst("Access-Control-Allow-Credentials"))
           .isEqualTo("true");
       assertThat(preflight.getHeaders().getFirst("Access-Control-Allow-Headers"))
-          .contains("x-custom-header");
+          .contains("x-csrf-token");
 
       ResponseEntity<JsonNode> actual =
           restClient
@@ -171,6 +171,44 @@ class DsAuthApplicationTests {
           .isEqualTo("true");
       assertThat(actual.getHeaders().getValuesAsList(HttpHeaders.SET_COOKIE)).isNotEmpty();
     }
+  }
+
+  @Test
+  void deniesUnconfiguredCorsOrigins() {
+    ResponseEntity<Void> response =
+        restClient
+            .method(HttpMethod.OPTIONS)
+            .uri(baseUrl() + "/login")
+            .header(HttpHeaders.ORIGIN, "https://untrusted.example")
+            .header("Access-Control-Request-Method", "POST")
+            .retrieve()
+            .toBodilessEntity();
+    assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+  }
+
+  @Test
+  void refreshAndLogoutRequireCsrfWhenARefreshCookieIsPresent() {
+    String token = cookieValue(login(ACTIVE_EMAIL, PASSWORD), "refresh_token");
+    for (String path : List.of("/refresh", "/logout")) {
+      ResponseEntity<Void> response =
+          restClient
+              .post()
+              .uri(baseUrl() + path)
+              .header(HttpHeaders.COOKIE, "refresh_token=" + token)
+              .retrieve()
+              .toBodilessEntity();
+      assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+      ResponseEntity<Void> wrong =
+          restClient
+              .post()
+              .uri(baseUrl() + path)
+              .header(HttpHeaders.COOKIE, "refresh_token=" + token + "; AUTH-XSRF-TOKEN=wrong")
+              .header("X-CSRF-TOKEN", "wrong")
+              .retrieve()
+              .toBodilessEntity();
+      assertThat(wrong.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+    assertThat(refresh(token).getStatusCode()).isEqualTo(HttpStatus.OK);
   }
 
   @Test
@@ -441,26 +479,27 @@ class DsAuthApplicationTests {
   }
 
   private ResponseEntity<JsonNode> refresh(String token) {
-    return restClient
-        .post()
-        .uri(baseUrl() + "/refresh")
-        .header(HttpHeaders.COOKIE, "refresh_token=" + token)
-        .retrieve()
-        .toEntity(JsonNode.class);
+    return sessionPost("/refresh", token).retrieve().toEntity(JsonNode.class);
   }
 
   private ResponseEntity<Void> logout(String token) {
-    return restClient
-        .post()
-        .uri(baseUrl() + "/logout")
-        .headers(
-            headers -> {
-              if (token != null) {
-                headers.add(HttpHeaders.COOKIE, "refresh_token=" + token);
-              }
-            })
-        .retrieve()
-        .toBodilessEntity();
+    return sessionPost("/logout", token).retrieve().toBodilessEntity();
+  }
+
+  private RestClient.RequestBodySpec sessionPost(String path, String token) {
+    RestClient.RequestBodySpec request = restClient.post().uri(baseUrl() + path);
+    if (token == null) {
+      return request;
+    }
+    ResponseEntity<JsonNode> csrf =
+        restClient.get().uri(baseUrl() + "/csrf").retrieve().toEntity(JsonNode.class);
+    assertThat(csrf.getHeaders().getCacheControl()).contains("no-store");
+    assertThat(setCookie(csrf, "AUTH-XSRF-TOKEN")).contains("HttpOnly", "Secure", "SameSite=Lax");
+    return request
+        .header(
+            HttpHeaders.COOKIE,
+            "refresh_token=" + token + "; AUTH-XSRF-TOKEN=" + cookieValue(csrf, "AUTH-XSRF-TOKEN"))
+        .header("X-CSRF-TOKEN", csrf.getBody().path("token").asString());
   }
 
   private String cookieValue(ResponseEntity<?> response, String cookieName) {
