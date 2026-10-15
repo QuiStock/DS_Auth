@@ -58,14 +58,19 @@ O MongoDB deve anunciar o mesmo host alcançável pela aplicação em sua URI de
 
 ## Rotas
 
-- `POST /auth/login` — recebe email, senha e `platform` (`mobile` ou `website`); valida a conta `ACTIVE` e a plataforma permitida para o perfil. Gerente Regional não pode entrar pelo app; Funcionário não pode entrar pelo website (a role legada Repositor também é bloqueada). Em sucesso, define os cookies `access_token` e `refresh_token`.
-- `POST /auth/refresh` — lê o refresh token do cookie, consome o valor atual e define os cookies com a nova sessão atomicamente.
-- `POST /auth/logout` — revoga a família do refresh token do cookie; retorna `204` e expira os cookies mesmo quando o token já não existe.
+- `POST /login` — recebe email, senha e `platform` (`mobile` ou `website`); valida a conta `ACTIVE` e a plataforma permitida para o perfil. Gerente Regional não pode entrar pelo app; Funcionário não pode entrar pelo website (a role legada Repositor também é bloqueada). Em sucesso, define os cookies `access_token` e `refresh_token`.
+- `POST /refresh` — lê o refresh token do cookie, consome o valor atual e define os cookies com a nova sessão atomicamente.
+- `POST /logout` — revoga a família do refresh token do cookie; retorna `204` e expira os cookies mesmo quando o token já não existe.
 - `GET /.well-known/jwks.json` — publica apenas as chaves públicas RS256.
 
 As rotas de autenticação não enviam informações de usuário nem tokens no payload. Os tokens são enviados em cookies `HttpOnly`; o `Max-Age` segue o TTL de cada token e é expresso em segundos pelo padrão de cookies HTTP (300 para access e 1.296.000 para refresh). Respostas de login e refresh usam `Cache-Control: no-store`. O refresh original é opaco; somente seu SHA-256 é gravado no MongoDB.
 
 Configure `AUTH_COOKIE_SECURE=true` fora do ambiente local HTTPS. `SameSite` é configurável; `SameSite=None` exige cookies `Secure`. Configure o domínio e o `SameSite` de acordo com os domínios do website e da API.
+
+As rotas antigas `/auth/login`, `/auth/refresh` e `/auth/logout` não são mais atendidas.
+Atualize os clientes e publique a configuração do gateway junto com a API. No acesso
+direto, use contexto vazio e `AUTH_COOKIE_PATH=/`. Um prefixo público configurado
+no gateway deve ser removido antes de encaminhar a requisição à API.
 
 ## Validação
 
