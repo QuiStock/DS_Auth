@@ -63,14 +63,14 @@ This inspection reflects the local branches available on 2026-10-01. Recheck bra
 
 DS_Auth uses the root context by default; the deployment defines public prefixes. The complete external paths are:
 
-- `POST /auth/login`
-- `POST /auth/refresh`
-- `POST /auth/logout`
+- `POST /login`
+- `POST /refresh`
+- `POST /logout`
 - `GET /.well-known/jwks.json` — public, no authentication required
 
 These four routes are public in the security filter; refresh and logout authenticate through the `refresh_token` cookie. The API is stateless and uses no server-side HTTP session. Login and refresh responses set the `access_token` and `refresh_token` cookies with `HttpOnly`, `Path=/`, configured `SameSite`/`Secure`/optional `Domain`, and the matching token lifetime. Return an empty body and `Cache-Control: no-store`; do not put tokens or user information in JSON. `Max-Age` uses seconds, as defined by HTTP cookies, not milliseconds. `Lax` is the default `SameSite`; `None` requires `Secure` and a CSRF/origin policy at the website gateway. Logout returns `204 No Content` and both cookies with empty values and `Max-Age=0`, preserving their original cookie scope and attributes. Paths not listed here are outside the contract.
 
-Use port 8090 in the local profile to avoid colliding with DS_Backend, which uses 8080. Mobile will receive an `AUTH_BASE_URL` ending in `/api/`. It may point to the same gateway as the backend if the gateway routes `/auth/**` and `/.well-known/**` to DS_Auth; if the services use separate hosts, configure the auth origin.
+Use port 8090 in the local profile to avoid colliding with DS_Backend, which uses 8080. Mobile receives a deployment-configured `AUTH_BASE_URL` with a trailing slash. Retrofit paths are relative: `login`, `refresh`, and `logout`. For direct access, use the auth origin with `/`; behind a gateway, include its public auth prefix in the base URL and strip that prefix before forwarding. Route these three POST endpoints and `/.well-known/jwks.json` to DS_Auth. The legacy `/auth/login`, `/auth/refresh`, and `/auth/logout` routes are no longer served; deploy client and gateway updates together with the API.
 
 ### Login
 
@@ -192,7 +192,7 @@ This section aligns future implementation; it does not authorize or make changes
 
 ### Mobile
 
-1. Add a Retrofit `AuthApi` for `auth/login`, `auth/refresh`, and `auth/logout`, with explicit snake_case DTOs using `@SerialName`; the current converter ignores unknown fields but does not automatically convert property names.
+1. Add a Retrofit `AuthApi` for `login`, `refresh`, and `logout`, with explicit snake_case DTOs using `@SerialName`; the current converter ignores unknown fields but does not automatically convert property names.
 2. Replace the `AuthenticationPort` binding from `FirebaseAuthenticationPort` with a Retrofit implementation. Map `user.id`/`email` to the local `User` model and map `invalid_credentials` to the existing generic login error.
 3. Use the native HTTP cookie manager to retain the `HttpOnly` cookies with their server-provided expiry. Never put token values in UI models, logs, Analytics, or Crashlytics.
 4. On startup, call refresh and let the cookie manager attach the `refresh_token`; if the API returns `401`, clear the cookie manager and show login. `429`/`503`/network errors are transient and must not delete a potentially valid refresh token.
