@@ -117,12 +117,42 @@ class DsAuthApplicationTests {
   }
 
   @Test
+  void rejectsLegacyAuthRoutes() {
+    for (String endpoint : List.of("login", "logout", "refresh")) {
+      ResponseEntity<Void> response =
+          restClient
+              .post()
+              .uri(baseUrl() + "/auth/" + endpoint)
+              .retrieve()
+              .toBodilessEntity();
+      assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+      assertThat(response.getHeaders().getValuesAsList(HttpHeaders.SET_COOKIE)).isEmpty();
+    }
+    assertThat(mongoTemplate.count(new Query(), RefreshTokenDocument.class)).isZero();
+  }
+
+  @Test
+  void rejectsNonPostRequestsToAuthRoutes() {
+    for (String endpoint : List.of("login", "logout", "refresh")) {
+      for (HttpMethod method : List.of(HttpMethod.GET, HttpMethod.PUT, HttpMethod.DELETE)) {
+        ResponseEntity<Void> response =
+            restClient
+                .method(method)
+                .uri(baseUrl() + "/" + endpoint)
+                .retrieve()
+                .toBodilessEntity();
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+      }
+    }
+  }
+
+  @Test
   void allowsCredentialedCorsFromAnyOrigin() {
     for (String origin : List.of("https://admin.example", "https://other.example")) {
       ResponseEntity<Void> preflight =
           restClient
               .method(HttpMethod.OPTIONS)
-              .uri(baseUrl() + "/auth/login")
+              .uri(baseUrl() + "/login")
               .header(HttpHeaders.ORIGIN, origin)
               .header("Access-Control-Request-Method", "POST")
               .header("Access-Control-Request-Headers", "content-type,x-custom-header")
@@ -138,7 +168,7 @@ class DsAuthApplicationTests {
       ResponseEntity<JsonNode> actual =
           restClient
               .post()
-              .uri(baseUrl() + "/auth/login")
+              .uri(baseUrl() + "/login")
               .header(HttpHeaders.ORIGIN, origin)
               .body(Map.of("email", ACTIVE_EMAIL, "password", PASSWORD, "platform", "mobile"))
               .retrieve()
@@ -239,21 +269,21 @@ class DsAuthApplicationTests {
   void malformedLoginAndRefreshPayloadsReturnUniformBadRequest() {
     ResponseEntity<JsonNode> malformedEmail =
         post(
-            baseUrl() + "/auth/login",
+            baseUrl() + "/login",
             Map.of("email", "not-an-email", "password", PASSWORD, "platform", "mobile"),
             JsonNode.class);
     ResponseEntity<JsonNode> missingPassword =
         post(
-            baseUrl() + "/auth/login",
+            baseUrl() + "/login",
             Map.of("email", ACTIVE_EMAIL, "platform", "mobile"),
             JsonNode.class);
     ResponseEntity<JsonNode> invalidPlatform =
         post(
-            baseUrl() + "/auth/login",
+            baseUrl() + "/login",
             Map.of("email", ACTIVE_EMAIL, "password", PASSWORD, "platform", "desktop"),
             JsonNode.class);
     ResponseEntity<JsonNode> missingRefreshCookie =
-        post(baseUrl() + "/auth/refresh", Map.of(), JsonNode.class);
+        post(baseUrl() + "/refresh", Map.of(), JsonNode.class);
     ResponseEntity<JsonNode> oversizedPassword = login(ACTIVE_EMAIL, "á".repeat(37));
 
     assertEquals(HttpStatus.BAD_REQUEST, malformedEmail.getStatusCode());
@@ -413,7 +443,7 @@ class DsAuthApplicationTests {
 
   private ResponseEntity<JsonNode> login(String email, String password, String platform) {
     return post(
-        baseUrl() + "/auth/login",
+        baseUrl() + "/login",
         Map.of("email", email, "password", password, "platform", platform),
         JsonNode.class);
   }
@@ -421,7 +451,7 @@ class DsAuthApplicationTests {
   private ResponseEntity<JsonNode> refresh(String token) {
     return restClient
         .post()
-        .uri(baseUrl() + "/auth/refresh")
+        .uri(baseUrl() + "/refresh")
         .header(HttpHeaders.COOKIE, "refresh_token=" + token)
         .retrieve()
         .toEntity(JsonNode.class);
@@ -430,7 +460,7 @@ class DsAuthApplicationTests {
   private ResponseEntity<Void> logout(String token) {
     return restClient
         .post()
-        .uri(baseUrl() + "/auth/logout")
+        .uri(baseUrl() + "/logout")
         .headers(
             headers -> {
               if (token != null) {
