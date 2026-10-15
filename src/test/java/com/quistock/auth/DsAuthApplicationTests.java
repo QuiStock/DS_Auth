@@ -120,11 +120,7 @@ class DsAuthApplicationTests {
   void rejectsLegacyAuthRoutes() {
     for (String endpoint : List.of("login", "logout", "refresh")) {
       ResponseEntity<Void> response =
-          restClient
-              .post()
-              .uri(baseUrl() + "/auth/" + endpoint)
-              .retrieve()
-              .toBodilessEntity();
+          restClient.post().uri(baseUrl() + "/auth/" + endpoint).retrieve().toBodilessEntity();
       assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
       assertThat(response.getHeaders().getValuesAsList(HttpHeaders.SET_COOKIE)).isEmpty();
     }
@@ -136,11 +132,7 @@ class DsAuthApplicationTests {
     for (String endpoint : List.of("login", "logout", "refresh")) {
       for (HttpMethod method : List.of(HttpMethod.GET, HttpMethod.PUT, HttpMethod.DELETE)) {
         ResponseEntity<Void> response =
-            restClient
-                .method(method)
-                .uri(baseUrl() + "/" + endpoint)
-                .retrieve()
-                .toBodilessEntity();
+            restClient.method(method).uri(baseUrl() + "/" + endpoint).retrieve().toBodilessEntity();
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
       }
     }
