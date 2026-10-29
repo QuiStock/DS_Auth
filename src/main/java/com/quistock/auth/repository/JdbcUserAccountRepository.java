@@ -41,6 +41,17 @@ public class JdbcUserAccountRepository implements UserAccountRepository {
   }
 
   @Override
+  public boolean hasExactlyOneActiveStore(long userId) {
+    Long count =
+        jdbcTemplate.queryForObject(
+            "SELECT count(*) FROM user_store us JOIN store s ON s.id = us.store_id "
+                + "WHERE us.user_id = ? AND us.active = TRUE AND s.status = 'ACTIVE'",
+            Long.class,
+            userId);
+    return Long.valueOf(1).equals(count);
+  }
+
+  @Override
   public Optional<UserAccount> findById(long id) {
     List<UserAccount> accounts =
         jdbcTemplate.query(

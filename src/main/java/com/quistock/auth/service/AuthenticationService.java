@@ -15,16 +15,12 @@ import org.springframework.stereotype.Service;
 public class AuthenticationService {
   private static final int BCRYPT_MAX_PASSWORD_BYTES = 72;
   private static final String ACTIVE = "ACTIVE";
-  private static final String MOBILE = "mobile";
-  private static final String WEBSITE = "website";
-  private static final String REGIONAL_MANAGER = "gerente regional";
-  private static final String EMPLOYEE = "funcionario";
-  private static final String LEGACY_REPOSITOR = "repositor";
   private final UserAccountRepository userRepository;
   private final PasswordEncoder passwordEncoder;
   private final String dummyBcryptHash;
   private final AuthRateLimitService rateLimitService;
   private final RefreshSessionService refreshSessionService;
+  private final AccountAccessPolicy accessPolicy;
 
   public AuthenticationService(
       UserAccountRepository userRepository,
@@ -37,6 +33,7 @@ public class AuthenticationService {
     this.dummyBcryptHash = dummyBcryptHash;
     this.rateLimitService = rateLimitService;
     this.refreshSessionService = refreshSessionService;
+    this.accessPolicy = new AccountAccessPolicy(userRepository);
   }
 
   public AuthTokens login(LoginRequest request, String ipAddress) {
@@ -57,10 +54,8 @@ public class AuthenticationService {
       throw ApiExceptionFactory.invalidCredentials();
     }
     UserAccount account = found.orElseThrow();
-    if (!canUsePlatform(account, request.platform())) {
-      throw ApiExceptionFactory.forbiddenPlatform();
-    }
-    return refreshSessionService.createSession(account);
+    accessPolicy.requireAllowed(account, request.platform());
+    return refreshSessionService.createSession(account, request.platform());
   }
 
   public AuthTokens refresh(String refreshToken, String ipAddress) {
@@ -79,32 +74,5 @@ public class AuthenticationService {
       passwordEncoder.matches(password, dummyBcryptHash);
       return false;
     }
-  }
-
-  private boolean canUsePlatform(UserAccount account, String platform) {
-    String roleName = normalizeRoleName(account.roleName());
-    String roleCode = normalizeRoleName(account.roleCode());
-    boolean regionalManager =
-        REGIONAL_MANAGER.equals(roleName)
-            || REGIONAL_MANAGER.equals(roleCode)
-            || "regional manager".equals(roleName)
-            || "regional manager".equals(roleCode);
-    boolean employee = isEmployeeRole(roleName, roleCode);
-    return !(MOBILE.equals(platform) && regionalManager) && !(WEBSITE.equals(platform) && employee);
-  }
-
-  private boolean isEmployeeRole(String roleName, String roleCode) {
-    return EMPLOYEE.equals(roleCode)
-        || EMPLOYEE.equals(roleName)
-        || "funcionário".equals(roleName)
-        || LEGACY_REPOSITOR.equals(roleCode)
-        || LEGACY_REPOSITOR.equals(roleName);
-  }
-
-  private String normalizeRoleName(String value) {
-    if (value == null) {
-      return "";
-    }
-    return value.trim().toLowerCase(Locale.ROOT).replace('_', ' ').replace('-', ' ');
   }
 }
