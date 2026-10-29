@@ -70,7 +70,8 @@ jobs:
 
   unit-tests:
     name: Unit tests
-    runs-on: ubuntu-24.04
+    # shortcut: MongoDB 8 rejects kernel >=6.19; restore newer runners after a compatible MongoDB upgrade.
+    runs-on: ubuntu-22.04
     timeout-minutes: 15
 
     steps:
