@@ -192,3 +192,12 @@ O cookie CSRF da Core e seu header `X-XSRF-TOKEN` são diferentes dos da Auth.
 Não há nova variável de ambiente obrigatória para habilitar a documentação.
 Se o gateway remover um prefixo público, alinhe os headers encaminhados e o
 contexto da aplicação para que os URLs gerados pelo Swagger preservem esse prefixo.
+
+### Mobile store eligibility
+
+Mobile EMPLOYEE/MANAGER logins and renewals require exactly one active store.
+`403 no_active_store` is distinct from CSRF failure. Refresh sessions persist their
+platform; sessions issued before this change require a new login. Apply the read-only
+SQL grants in [mobile-store-eligibility.sql](docs/mobile-store-eligibility.sql) before
+publishing. See the [API plan](docs/authentication-api-plan.md#mobile-active-store-eligibility-pr-mobile-44)
+for rollout and error semantics. JWTs, key configuration and token TTLs are unchanged.

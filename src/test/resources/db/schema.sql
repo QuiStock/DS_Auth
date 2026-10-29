@@ -13,3 +13,10 @@ CREATE TABLE user_account (
     status user_status NOT NULL,
     password_hash VARCHAR(255) NOT NULL
 );
+
+CREATE TABLE store (id BIGINT PRIMARY KEY, status user_status NOT NULL);
+CREATE TABLE user_store (
+    user_id BIGINT NOT NULL REFERENCES user_account(id),
+    store_id BIGINT NOT NULL REFERENCES store(id),
+    active BOOLEAN NOT NULL
+);

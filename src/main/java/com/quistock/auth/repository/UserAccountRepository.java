@@ -7,4 +7,6 @@ public interface UserAccountRepository {
   Optional<UserAccount> findByNormalizedEmail(String normalizedEmail);
 
   Optional<UserAccount> findById(long id);
+
+  boolean hasExactlyOneActiveStore(long userId);
 }

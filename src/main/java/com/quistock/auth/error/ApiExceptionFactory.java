@@ -23,6 +23,14 @@ public final class ApiExceptionFactory {
         null);
   }
 
+  public static ApiException noActiveStore() {
+    return new ApiException(
+        HttpStatus.FORBIDDEN,
+        "no_active_store",
+        "No active store is assigned to this account.",
+        null);
+  }
+
   public static ApiException invalidRefreshToken() {
     return new ApiException(
         HttpStatus.UNAUTHORIZED, "invalid_refresh_token", "Refresh token inválido.", null);
