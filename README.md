@@ -201,3 +201,8 @@ platform; sessions issued before this change require a new login. Apply the read
 SQL grants in [mobile-store-eligibility.sql](docs/mobile-store-eligibility.sql) before
 publishing. See the [API plan](docs/authentication-api-plan.md#mobile-active-store-eligibility-pr-mobile-44)
 for rollout and error semantics. JWTs, key configuration and token TTLs are unchanged.
+
+The MongoDB integration-test job uses the Ubuntu 22.04 runner (kernel 6.8). MongoDB 8
+refuses startup on the newer runner's incompatible kernel before any tests execute;
+see [SERVER-121912](https://jira.mongodb.org/browse/SERVER-121912). Other CI jobs,
+test assertions, coverage thresholds and production MongoDB configuration are unchanged.
