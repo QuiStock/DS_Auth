@@ -2,8 +2,6 @@ package com.quistock.auth.error;
 
 import com.mongodb.MongoException;
 import com.quistock.auth.dto.ApiError;
-import com.quistock.auth.service.AuthCookies;
-import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
@@ -20,20 +18,9 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 public class ApiExceptionHandler {
   private static final Logger LOGGER = LoggerFactory.getLogger(ApiExceptionHandler.class);
 
-  private final AuthCookies cookies;
-
-  public ApiExceptionHandler(AuthCookies cookies) {
-    this.cookies = cookies;
-  }
-
   @ExceptionHandler(ApiException.class)
-  ResponseEntity<ApiError> handleApiException(ApiException exception, HttpServletRequest request) {
+  ResponseEntity<ApiError> handleApiException(ApiException exception) {
     HttpHeaders headers = noStoreHeaders();
-    boolean terminal =
-        "invalid_refresh_token".equals(exception.code())
-            || "no_active_store".equals(exception.code())
-            || "platform_not_allowed".equals(exception.code());
-    if ("/refresh".equals(request.getServletPath()) && terminal) cookies.expire(headers);
     if (exception.retryAfterSeconds() != null) {
       headers.set(HttpHeaders.RETRY_AFTER, Long.toString(exception.retryAfterSeconds()));
     }

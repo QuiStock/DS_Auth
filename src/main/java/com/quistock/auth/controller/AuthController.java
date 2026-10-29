@@ -1,9 +1,9 @@
 package com.quistock.auth.controller;
 
+import com.quistock.auth.config.CookieSettings;
 import com.quistock.auth.dto.ApiError;
 import com.quistock.auth.dto.AuthTokens;
 import com.quistock.auth.dto.LoginRequest;
-import com.quistock.auth.service.AuthCookies;
 import com.quistock.auth.service.AuthenticationService;
 import com.quistock.auth.service.TrustedClientIpResolver;
 import io.swagger.v3.oas.annotations.Operation;
@@ -22,6 +22,7 @@ import java.time.Duration;
 import java.util.Arrays;
 import org.springframework.http.CacheControl;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -43,15 +44,15 @@ public class AuthController {
   private static final String X_FORWARDED_FOR = "X-Forwarded-For";
   private final AuthenticationService authenticationService;
   private final TrustedClientIpResolver clientIpResolver;
-  private final AuthCookies cookies;
+  private final CookieSettings cookieSettings;
 
   public AuthController(
       AuthenticationService authenticationService,
       TrustedClientIpResolver clientIpResolver,
-      AuthCookies cookies) {
+      CookieSettings cookieSettings) {
     this.authenticationService = authenticationService;
     this.clientIpResolver = clientIpResolver;
-    this.cookies = cookies;
+    this.cookieSettings = cookieSettings;
   }
 
   @PostMapping("/login")
@@ -81,8 +82,7 @@ public class AuthController {
       content = @Content(schema = @Schema(implementation = ApiError.class)))
   @ApiResponse(
       responseCode = "403",
-      description =
-          "Perfil não permitido (platform_not_allowed) ou mobile sem loja ativa (no_active_store).",
+      description = "Perfil não permitido na plataforma (platform_not_allowed).",
       content = @Content(schema = @Schema(implementation = ApiError.class)))
   @ApiResponse(
       responseCode = "429",
@@ -124,9 +124,7 @@ public class AuthController {
       content = @Content(schema = @Schema(implementation = ApiError.class)))
   @ApiResponse(
       responseCode = "403",
-      description =
-          "CSRF inválido, plataforma bloqueada ou vínculo ativo de loja removido."
-              + " Erros de elegibilidade revogam a sessão.",
+      description = "Cookie/header CSRF ausente ou inválido.",
       content = @Content)
   @ApiResponse(
       responseCode = "429",
@@ -177,27 +175,41 @@ public class AuthController {
         .cacheControl(CacheControl.noStore())
         .header(
             HttpHeaders.SET_COOKIE,
-            cookies.create("access_token", tokens.accessToken(), tokens.accessTokenTtl()))
+            cookie("access_token", tokens.accessToken(), tokens.accessTokenTtl()))
         .header(
             HttpHeaders.SET_COOKIE,
-            cookies.create("refresh_token", tokens.refreshToken(), tokens.refreshTokenTtl()))
+            cookie("refresh_token", tokens.refreshToken(), tokens.refreshTokenTtl()))
         .build();
   }
 
   private ResponseEntity<Void> clearCookies() {
     return ResponseEntity.noContent()
         .cacheControl(CacheControl.noStore())
-        .header(HttpHeaders.SET_COOKIE, cookies.create("access_token", "", Duration.ZERO))
-        .header(HttpHeaders.SET_COOKIE, cookies.create("refresh_token", "", Duration.ZERO))
+        .header(HttpHeaders.SET_COOKIE, cookie("access_token", "", Duration.ZERO))
+        .header(HttpHeaders.SET_COOKIE, cookie("refresh_token", "", Duration.ZERO))
         .build();
   }
 
+  private String cookie(String name, String value, Duration maxAge) {
+    ResponseCookie.ResponseCookieBuilder cookie =
+        ResponseCookie.from(name, value)
+            .httpOnly(true)
+            .secure(cookieSettings.isSecure())
+            .path(cookieSettings.getPath())
+            .sameSite(cookieSettings.getSameSite())
+            .maxAge(maxAge);
+    if (cookieSettings.getDomain() != null && !cookieSettings.getDomain().isBlank()) {
+      cookie.domain(cookieSettings.getDomain());
+    }
+    return cookie.build().toString();
+  }
+
   private String refreshToken(HttpServletRequest request) {
-    Cookie[] requestCookies = request.getCookies();
-    if (requestCookies == null) {
+    Cookie[] cookies = request.getCookies();
+    if (cookies == null) {
       return null;
     }
-    return Arrays.stream(requestCookies)
+    return Arrays.stream(cookies)
         .filter(cookie -> "refresh_token".equals(cookie.getName()))
         .map(Cookie::getValue)
         .findFirst()
