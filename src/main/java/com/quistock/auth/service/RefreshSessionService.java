@@ -3,7 +3,6 @@ package com.quistock.auth.service;
 import com.mongodb.MongoException;
 import com.quistock.auth.config.JwtSettings;
 import com.quistock.auth.dto.AuthTokens;
-import com.quistock.auth.error.ApiException;
 import com.quistock.auth.error.ApiExceptionFactory;
 import com.quistock.auth.model.RefreshTokenDocument;
 import com.quistock.auth.model.UserAccount;
@@ -24,7 +23,6 @@ public class RefreshSessionService {
   private static final String ACTIVE = "ACTIVE";
   private static final String CONSUMED = "CONSUMED";
   private final MongoRefreshTokenStore tokenStore;
-  private final AccountAccessPolicy accessPolicy;
   private final UserAccountRepository userRepository;
   private final JwtTokenIssuer tokenIssuer;
   private final TokenSecretFactory tokenFactory;
@@ -39,7 +37,6 @@ public class RefreshSessionService {
       Clock authClock,
       @Qualifier("mongoTransactionTemplate") TransactionTemplate transactionTemplate) {
     this.tokenStore = tokenStore;
-    this.accessPolicy = new AccountAccessPolicy(userRepository);
     this.userRepository = userRepository;
     this.tokenIssuer = tokenIssuer;
     this.tokenFactory = tokenFactory;
@@ -47,7 +44,7 @@ public class RefreshSessionService {
     this.transactionTemplate = transactionTemplate;
   }
 
-  public AuthTokens createSession(UserAccount account, String platform) {
+  public AuthTokens createSession(UserAccount account) {
     Instant now = clock.instant();
     String familyId = UUID.randomUUID().toString();
     String refreshToken = tokenFactory.newToken();
@@ -64,8 +61,7 @@ public class RefreshSessionService {
             now.plus(JwtSettings.REFRESH_TOKEN_TTL),
             null,
             null,
-            null,
-            platform));
+            null));
     return response;
   }
 
@@ -75,9 +71,6 @@ public class RefreshSessionService {
     }
     String tokenHash = tokenFactory.hash(rawToken);
     RotationResult result = rotateToken(tokenHash);
-    if (result != null && result.denial() != null) {
-      throw result.denial();
-    }
     if (result == null || result.response() == null) {
       revokeFamilyAfterReplay(tokenHash);
       throw ApiExceptionFactory.invalidRefreshToken();
@@ -143,21 +136,9 @@ public class RefreshSessionService {
       return RotationResult.invalid();
     }
 
-    if (!"mobile".equals(current.platform()) && !"website".equals(current.platform())) {
-      tokenStore.revokeFamily(current.familyId(), now);
-      return RotationResult.invalid();
-    }
     Optional<UserAccount> account = userRepository.findById(current.userAccountId());
     if (account.filter(user -> ACTIVE.equals(user.status())).isEmpty()) {
-      tokenStore.revokeFamily(current.familyId(), now);
       return RotationResult.invalid();
-    }
-    try {
-      accessPolicy.requireAllowed(account.orElseThrow(), current.platform());
-    } catch (ApiException denial) {
-      // Return the denial so family revocation commits before the HTTP error is raised.
-      tokenStore.revokeFamily(current.familyId(), now);
-      return new RotationResult(null, denial);
     }
 
     String successorToken = tokenFactory.newToken();
@@ -180,8 +161,7 @@ public class RefreshSessionService {
             now.plus(JwtSettings.REFRESH_TOKEN_TTL),
             null,
             null,
-            null,
-            current.platform()));
+            null));
     return RotationResult.success(response);
   }
 
@@ -206,13 +186,13 @@ public class RefreshSessionService {
         accessToken, refreshToken, tokenIssuer.accessTokenTtl(), JwtSettings.REFRESH_TOKEN_TTL);
   }
 
-  private record RotationResult(AuthTokens response, ApiException denial) {
+  private record RotationResult(AuthTokens response) {
     private static RotationResult success(AuthTokens response) {
-      return new RotationResult(response, null);
+      return new RotationResult(response);
     }
 
     private static RotationResult invalid() {
-      return new RotationResult(null, null);
+      return new RotationResult(null);
     }
   }
 }

@@ -16,5 +16,4 @@ public record RefreshTokenDocument(
     @Field("expires_at") Instant expiresAt,
     @Field("consumed_at") Instant consumedAt,
     @Field("revoked_at") Instant revokedAt,
-    @Field("replaced_by_id") String replacedById,
-    String platform) {}
+    @Field("replaced_by_id") String replacedById) {}

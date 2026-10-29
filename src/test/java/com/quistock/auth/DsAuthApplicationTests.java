@@ -94,8 +94,6 @@ class DsAuthApplicationTests {
             .build();
     mongoTemplate.remove(new Query(), RefreshTokenDocument.class);
     mongoTemplate.remove(new Query(), RateLimitCounter.class);
-    jdbcTemplate.update("DELETE FROM user_store");
-    jdbcTemplate.update("DELETE FROM store");
     jdbcTemplate.update("DELETE FROM user_account");
     jdbcTemplate.update(
         "INSERT INTO role (id, code, name) VALUES (1, 'REPOSITOR', 'Repositor') "
@@ -116,9 +114,6 @@ class DsAuthApplicationTests {
         202L,
         "inactive@example.com",
         passwordHash);
-    jdbcTemplate.update("INSERT INTO store (id, status) VALUES (51, 'ACTIVE'), (52, 'INACTIVE')");
-    jdbcTemplate.update(
-        "INSERT INTO user_store (user_id, store_id, active) VALUES (101, 51, TRUE)");
   }
 
   @Test
@@ -466,61 +461,6 @@ class DsAuthApplicationTests {
     ResponseEntity<JsonNode> response = login(ACTIVE_EMAIL, PASSWORD);
     assertEquals(HttpStatus.SERVICE_UNAVAILABLE, response.getStatusCode());
     assertThat(response.getBody().path("code").asString()).isEqualTo("service_unavailable");
-  }
-
-  @Test
-  void mobileLoginRequiresExactlyOneActiveStore() {
-    jdbcTemplate.update("DELETE FROM user_store");
-    ResponseEntity<JsonNode> missing = login(ACTIVE_EMAIL, PASSWORD);
-    assertThat(missing.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
-    assertThat(missing.getBody().path("code").asString()).isEqualTo("no_active_store");
-    assertThat(mongoTemplate.count(new Query(), RefreshTokenDocument.class)).isZero();
-    jdbcTemplate.update("INSERT INTO user_store VALUES (101, 52, TRUE)");
-    assertThat(login(ACTIVE_EMAIL, PASSWORD).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
-    jdbcTemplate.update("UPDATE user_store SET store_id = 51, active = FALSE");
-    assertThat(login(ACTIVE_EMAIL, PASSWORD).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
-  }
-
-  @Test
-  void refreshRechecksStoreAndCommitsRevocationBeforeReturningForbidden() {
-    String token = cookieValue(login(ACTIVE_EMAIL, PASSWORD), "refresh_token");
-    jdbcTemplate.update("UPDATE user_store SET active = FALSE");
-    ResponseEntity<JsonNode> rejected = refresh(token);
-    assertThat(rejected.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
-    assertThat(rejected.getBody().path("code").asString()).isEqualTo("no_active_store");
-    assertThat(setCookie(rejected, "access_token")).contains("Max-Age=0", "HttpOnly", "Path=/");
-    assertThat(setCookie(rejected, "refresh_token")).contains("Max-Age=0", "HttpOnly", "Path=/");
-    assertThat(mongoTemplate.findAll(RefreshTokenDocument.class))
-        .allMatch(document -> "REVOKED".equals(document.state()));
-    jdbcTemplate.update("UPDATE user_store SET active = TRUE");
-    assertThat(refresh(token).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
-  }
-
-  @Test
-  void platformSurvivesRotationAndLegacySessionsRequireLogin() {
-    String token = cookieValue(login(ACTIVE_EMAIL, PASSWORD), "refresh_token");
-    ResponseEntity<JsonNode> rotated = refresh(token);
-    assertThat(rotated.getStatusCode()).isEqualTo(HttpStatus.OK);
-    assertThat(mongoTemplate.getCollection("refresh_token").find())
-        .allMatch(document -> "mobile".equals(document.getString("platform")));
-    mongoTemplate.updateMulti(
-        new Query(), new Update().unset("platform"), RefreshTokenDocument.class);
-    assertThat(refresh(cookieValue(rotated, "refresh_token")).getStatusCode())
-        .isEqualTo(HttpStatus.UNAUTHORIZED);
-    assertThat(mongoTemplate.findAll(RefreshTokenDocument.class))
-        .allMatch(document -> "REVOKED".equals(document.state()));
-  }
-
-  @Test
-  void storeReadFailureIsServiceUnavailableAndDoesNotCreateSession() {
-    jdbcTemplate.execute("ALTER TABLE user_store RENAME TO unavailable_user_store");
-    try {
-      assertThat(login(ACTIVE_EMAIL, PASSWORD).getStatusCode())
-          .isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
-      assertThat(mongoTemplate.count(new Query(), RefreshTokenDocument.class)).isZero();
-    } finally {
-      jdbcTemplate.execute("ALTER TABLE unavailable_user_store RENAME TO user_store");
-    }
   }
 
   private <T> ResponseEntity<T> post(String uri, Object body, Class<T> responseType) {
