@@ -275,7 +275,8 @@ class DsAuthApplicationTests {
     ResponseEntity<JsonNode> response = login("  ACTIVE@EXAMPLE.COM  ", PASSWORD);
 
     assertEquals(HttpStatus.OK, response.getStatusCode());
-    assertThat(response.getBody()).isNull();
+    assertThat(response.getBody().path("token").asText())
+        .isEqualTo(cookieValue(response, "access_token"));
     jdbcTemplate.update(
         "INSERT INTO user_account (id, role_id, email, status, password_hash) "
             + "VALUES (?, 2, ?, 'ACTIVE', ?)",
@@ -290,7 +291,8 @@ class DsAuthApplicationTests {
     assertEquals(HttpStatus.FORBIDDEN, managerMobile.getStatusCode());
     assertThat(managerMobile.getBody().path("code").asString()).isEqualTo("platform_not_allowed");
     assertEquals(HttpStatus.OK, managerWebsite.getStatusCode());
-    assertThat(managerWebsite.getBody()).isNull();
+    assertThat(managerWebsite.getBody().path("token").asText())
+        .isEqualTo(cookieValue(managerWebsite, "access_token"));
     assertEquals(HttpStatus.FORBIDDEN, repositorWebsite.getStatusCode());
     assertThat(repositorWebsite.getBody().path("code").asString())
         .isEqualTo("platform_not_allowed");
