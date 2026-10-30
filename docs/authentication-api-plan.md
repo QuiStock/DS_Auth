@@ -55,10 +55,10 @@ This inspection reflects the local branches available on 2026-10-01. Recheck bra
 - RS256 signing is compatible with the current DS_Backend decoder.
 - The audience is `quistock-api`.
 - Do not include a role claim in the JWT. Read the role from SQL when checking the requested login platform.
-- Login and refresh set HTTP-only access and refresh cookies and return no body or user profile. The cookie `Max-Age` is expressed in seconds by the HTTP cookie standard: 300 seconds for access and 1,296,000 seconds for refresh.
+- Login and refresh return the access JWT as JSON field `token` and also set HTTP-only access and refresh cookies. The refresh token and user profile are never returned in the body. The cookie `Max-Age` is expressed in seconds by the HTTP cookie standard: 300 seconds for access and 1,296,000 seconds for refresh.
 - Refresh and logout read the refresh token from its cookie. Logout expires both cookies with `Max-Age=0`; the cookie name, path, domain, and security attributes must match the issued cookies.
 - Each login creates an independent family. V1 has no per-user session limit or route to revoke every family; logout revokes the family of the supplied refresh token.
-- The JWT subject is the SQL account ID and the required `email` claim is the canonical SQL email. Neither value is returned in the login or refresh response body.
+- The JWT subject is the SQL account ID and the required `email` claim is the canonical SQL email. These claims are present in the access JWT returned as `token`; no separate user profile is returned.
 
 ## 4. HTTP contract
 
@@ -70,7 +70,7 @@ DS_Auth uses the root context by default; the deployment defines public prefixes
 - `GET /csrf` — public, returns a CSRF token only
 - `GET /.well-known/jwks.json` — public, no authentication required
 
-These five routes are public in the security filter; refresh and logout authenticate through the `refresh_token` cookie. The API is stateless and uses no server-side HTTP session. Login and refresh responses set the `access_token` and `refresh_token` cookies with `HttpOnly`, `Path=/`, configured `SameSite`/`Secure`/optional `Domain`, and the matching token lifetime. Return an empty body and `Cache-Control: no-store`; do not put tokens or user information in JSON. `Max-Age` uses seconds, as defined by HTTP cookies, not milliseconds. `Lax` is the default `SameSite`; `None` requires `Secure`. Auth enforces CSRF on cookie-authenticated refresh/logout and CORS permits only configured frontend origins. Logout returns `204 No Content` and both cookies with empty values and `Max-Age=0`, preserving their original cookie scope and attributes. Paths not listed here are outside the contract.
+These five routes are public in the security filter; refresh and logout authenticate through the `refresh_token` cookie. The API is stateless and uses no server-side HTTP session. Login and refresh responses return the access JWT as JSON field `token` and set the `access_token` and `refresh_token` cookies with `HttpOnly`, `Path=/`, configured `SameSite`/`Secure`/optional `Domain`, and the matching token lifetime. The refresh token and user profile are never returned in JSON. The web stores the short-lived access JWT and sends it to Core as Bearer; this lets browser JavaScript access the JWT, so use a same-site BFF when available. `Cache-Control: no-store` prevents response caching. `Max-Age` uses seconds, as defined by HTTP cookies, not milliseconds. `Lax` is the default `SameSite`; `None` requires `Secure`. Auth enforces CSRF on cookie-authenticated refresh/logout and CORS permits only configured frontend origins. Logout returns `204 No Content` and both cookies with empty values and `Max-Age=0`, preserving their original cookie scope and attributes. Paths not listed here are outside the contract.
 
 Use port 8090 in the local profile to avoid colliding with DS_Backend, which uses 8080. Mobile receives a deployment-configured `AUTH_BASE_URL` with a trailing slash. Retrofit paths are relative: `login`, `refresh`, and `logout`. For direct access, use the auth origin with `/`; behind a gateway, include its public auth prefix in the base URL and strip that prefix before forwarding. Route these three POST endpoints and `/.well-known/jwks.json` to DS_Auth. The legacy `/auth/login`, `/auth/refresh`, and `/auth/logout` routes are no longer served; deploy client and gateway updates together with the API.
 
@@ -86,7 +86,7 @@ Request:
 
 `platform` is required and accepts only `mobile` or `website`. Gerente Regional may use `website` and receives `403` for `mobile`. Repositor may use `mobile` and receives `403` for `website`. Other active roles are allowed on both platforms unless a later rule says otherwise.
 
-Success: `200 OK`, empty body, and two `Set-Cookie` headers. `access_token` contains the RS256 JWT with `Max-Age=300`; `refresh_token` contains the opaque token with `Max-Age=1296000`. Both are `HttpOnly`. No user object or tokens are included in a response payload.
+Success: `200 OK`, JSON field `token` with the RS256 access JWT, and two `Set-Cookie` headers. `access_token` matches `token` and has `Max-Age=300`; `refresh_token` contains the opaque token with `Max-Age=1296000`. Both cookies are `HttpOnly`. No separate user object or refresh token is included in JSON.
 
 Trim surrounding whitespace and lowercase the email using `Locale.ROOT`. Do not alter the password. Look up the same normalized form. The `email` claim contains the canonical email stored in SQL.
 
@@ -96,7 +96,7 @@ Unknown email, incorrect password, and `INACTIVE` account return the same `401` 
 
 Request: send the `refresh_token` cookie from login, the `AUTH-XSRF-TOKEN` cookie from GET /csrf, and its returned token in X-CSRF-TOKEN. There is no JSON request body. Missing or invalid CSRF returns 403 before rotation.
 
-Success: `200 OK`, empty body, and new `access_token`/`refresh_token` cookies. Consume the submitted token in the same transaction that creates its successor. Cookie max ages are reset to 300 and 1,296,000 seconds from issuance.
+Success: `200 OK`, JSON field `token` with the new access JWT, and new `access_token`/`refresh_token` cookies. The `access_token` cookie matches `token`. Consume the submitted token in the same transaction that creates its successor. Cookie max ages are reset to 300 and 1,296,000 seconds from issuance.
 
 Unknown, expired, consumed, or revoked tokens return `401`. If a consumed token is presented again before its original expiry, revoke the entire session family. Expired old tokens may have been removed by the TTL index; in that case return `401` without revoking other sessions.
 
@@ -266,7 +266,7 @@ The DS_Backend JWKS configuration, functional SQL index migration, deployment se
 - Public JWKS contains only public keys and verifies a valid RS256 token. The backend rejects unknown `kid`, wrong issuer/audience, invalid signature, invalid subject, missing email, and expired token.
 - After an account is inactivated in SQL, login and refresh fail. An already-issued access token remains valid until it expires.
 - Login rejects Gerente Regional on `mobile` and Repositor on `website` with `403`; missing or unsupported `platform` returns `400`.
-- Login and refresh return no JSON body, set the two HTTP-only cookies with TTL-based `Max-Age` in seconds, and expose no user identity. Logout revokes the refresh family and expires both cookies with `Max-Age=0`.
+- Login and refresh return the short-lived access JWT in JSON field `token`, set the two HTTP-only cookies with TTL-based `Max-Age` in seconds, and expose no separate user profile or refresh token. Logout revokes the refresh family and expires both cookies with `Max-Age=0`.
 
 ### Mobile ↔ DS_Auth ↔ DS_Backend
 
