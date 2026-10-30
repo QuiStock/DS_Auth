@@ -68,14 +68,14 @@ public class AuthController {
   @ApiResponse(
       responseCode = "200",
       description =
-          "Corpo vazio. Emite dois cookies HTTP-only: access_token (Max-Age=300 segundos) e"
-              + " refresh_token (Max-Age=1296000 segundos).",
+          "Retorna o access JWT no campo token e emite dois cookies HTTP-only: access_token"
+              + " (Max-Age=300 segundos) e refresh_token (Max-Age=1296000 segundos).",
       headers =
           @Header(
               name = "Set-Cookie",
               description =
                   "Dois headers Set-Cookie com Path, Secure, SameSite e Domain configurados."),
-      content = @Content)
+      content = @Content(schema = @Schema(implementation = TokenResponse.class)))
   @ApiResponse(
       responseCode = "401",
       description = "Email/senha inválidos ou conta inativa; resposta genérica.",
@@ -89,7 +89,7 @@ public class AuthController {
       description = "Limite de tentativas excedido.",
       headers = @Header(name = "Retry-After", description = "Segundos até a próxima tentativa."),
       content = @Content(schema = @Schema(implementation = ApiError.class)))
-  public ResponseEntity<Void> login(
+  public ResponseEntity<TokenResponse> login(
       @Valid @RequestBody LoginRequest request, HttpServletRequest servletRequest) {
     AuthTokens tokens = authenticationService.login(request, clientIp(servletRequest));
     return withTokens(tokens);
@@ -112,12 +112,14 @@ public class AuthController {
   @SecurityRequirement(name = "refreshCookie")
   @ApiResponse(
       responseCode = "200",
-      description = "Corpo vazio. Substitui os dois cookies, reiniciando seus Max-Age.",
+      description =
+          "Retorna o novo access JWT no campo token e substitui os dois cookies, reiniciando"
+              + " seus Max-Age.",
       headers =
           @Header(
               name = "Set-Cookie",
               description = "Novos access_token e refresh_token HTTP-only."),
-      content = @Content)
+      content = @Content(schema = @Schema(implementation = TokenResponse.class)))
   @ApiResponse(
       responseCode = "401",
       description = "Refresh token ausente, inválido, expirado, revogado ou reutilizado.",
@@ -131,7 +133,7 @@ public class AuthController {
       description = "Limite de renovações excedido.",
       headers = @Header(name = "Retry-After", description = "Segundos até a próxima tentativa."),
       content = @Content(schema = @Schema(implementation = ApiError.class)))
-  public ResponseEntity<Void> refresh(HttpServletRequest servletRequest) {
+  public ResponseEntity<TokenResponse> refresh(HttpServletRequest servletRequest) {
     AuthTokens tokens =
         authenticationService.refresh(refreshToken(servletRequest), clientIp(servletRequest));
     return withTokens(tokens);
@@ -170,7 +172,7 @@ public class AuthController {
     return clearCookies();
   }
 
-  private ResponseEntity<Void> withTokens(AuthTokens tokens) {
+  private ResponseEntity<TokenResponse> withTokens(AuthTokens tokens) {
     return ResponseEntity.ok()
         .cacheControl(CacheControl.noStore())
         .header(
@@ -179,8 +181,11 @@ public class AuthController {
         .header(
             HttpHeaders.SET_COOKIE,
             cookie("refresh_token", tokens.refreshToken(), tokens.refreshTokenTtl()))
-        .build();
+        .body(new TokenResponse(tokens.accessToken()));
   }
+
+  // shortcut: exposes JWT to browser JS; replace with same-site BFF when available.
+  public record TokenResponse(String token) {}
 
   private ResponseEntity<Void> clearCookies() {
     return ResponseEntity.noContent()
