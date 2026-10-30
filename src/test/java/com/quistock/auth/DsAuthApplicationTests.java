@@ -217,8 +217,9 @@ class DsAuthApplicationTests {
 
     assertEquals(HttpStatus.OK, response.getStatusCode());
     assertThat(response.getHeaders().getCacheControl()).contains("no-store");
-    assertThat(response.getBody()).isNull();
     String accessToken = cookieValue(response, "access_token");
+    assertThat(response.getBody().path("token").asText()).isEqualTo(accessToken);
+    assertThat(response.getBody().has("refresh_token")).isFalse();
     String refreshToken = cookieValue(response, "refresh_token");
     assertThat(setCookie(response, "access_token"))
         .contains("HttpOnly", "Secure", "Path=/", "SameSite=Lax", "Max-Age=300");
@@ -336,7 +337,9 @@ class DsAuthApplicationTests {
     String successor = cookieValue(rotated, "refresh_token");
 
     assertEquals(HttpStatus.OK, rotated.getStatusCode());
-    assertThat(rotated.getBody()).isNull();
+    assertThat(rotated.getBody().path("token").asText())
+        .isEqualTo(cookieValue(rotated, "access_token"));
+    assertThat(rotated.getBody().has("refresh_token")).isFalse();
     assertThat(successor).isNotEqualTo(original);
     assertEquals(HttpStatus.UNAUTHORIZED, refresh(original).getStatusCode());
     ResponseEntity<JsonNode> revokedSuccessor = refresh(successor);
