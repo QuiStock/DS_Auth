@@ -63,7 +63,7 @@ O MongoDB deve anunciar o mesmo host alcançável pela aplicação em sua URI de
 - `POST /logout` — revoga a família do refresh token do cookie; retorna `204` e expira os cookies mesmo quando o token já não existe.
 - `GET /.well-known/jwks.json` — publica apenas as chaves públicas RS256.
 
-As rotas de autenticação não enviam informações de usuário nem tokens no payload. Os tokens são enviados em cookies `HttpOnly`; o `Max-Age` segue o TTL de cada token e é expresso em segundos pelo padrão de cookies HTTP (300 para access e 1.296.000 para refresh). Respostas de login e refresh usam `Cache-Control: no-store`. O refresh original é opaco; somente seu SHA-256 é gravado no MongoDB.
+Login e refresh retornam o access JWT no campo `token` para o cliente web enviar ao Core como Bearer. Ambos também definem os cookies `HttpOnly` `access_token` e `refresh_token`; o refresh token nunca é retornado no JSON. O `Max-Age` segue o TTL de cada token em segundos (300 para access e 1.296.000 para refresh). Respostas de login e refresh usam `Cache-Control: no-store`. O refresh original é opaco; somente seu SHA-256 é gravado no MongoDB.
 
 Configure `AUTH_COOKIE_SECURE=true` fora do ambiente local HTTPS. `SameSite` é configurável; `SameSite=None` exige cookies `Secure`. Configure o domínio e o `SameSite` de acordo com os domínios do website e da API.
 
